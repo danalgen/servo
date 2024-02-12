@@ -124,7 +124,7 @@ use ipc_channel::router::ROUTER;
 use ipc_channel::Error as IpcError;
 use keyboard_types::webdriver::Event as WebDriverInputEvent;
 use keyboard_types::KeyboardEvent;
-use layout_traits::{LayoutThreadFactory, ScriptThreadFactory};
+use layout_traits::{LayoutFactory, ScriptThreadFactory};
 use log::{debug, error, info, trace, warn};
 use media::{GLPlayerThreads, WindowGLContext};
 use msg::constellation_msg::{
@@ -270,7 +270,7 @@ struct BrowsingContextGroup {
 /// `LayoutThread` in the `layout` crate, and `ScriptThread` in
 /// the `script` crate). Script and layout communicate using a `Message`
 /// type.
-pub struct Constellation<Message, LTF, STF, SWF> {
+pub struct Constellation<Message, STF, SWF> {
     /// An ipc-sender/threaded-receiver pair
     /// to facilitate installing pipeline namespaces in threads
     /// via a per-process installer.
@@ -301,6 +301,11 @@ pub struct Constellation<Message, LTF, STF, SWF> {
     /// A channel for the constellation to receiver messages
     /// from the background hang monitor.
     background_hang_monitor_receiver: Receiver<Result<HangMonitorAlert, IpcError>>,
+
+    /// A factory for creating layouts. This allows customizing the kind
+    /// of layout created for a [`Constellation`] and preventing a circular dependency
+    /// between script and layout.
+    layout_factory: Arc<dyn LayoutFactory>,
 
     /// An IPC channel for layout threads to send messages to the constellation.
     /// This is the layout threads' view of `layout_receiver`.
@@ -455,7 +460,7 @@ pub struct Constellation<Message, LTF, STF, SWF> {
     random_pipeline_closure: Option<(ServoRng, f32)>,
 
     /// Phantom data that keeps the Rust type system happy.
-    phantom: PhantomData<(Message, LTF, STF, SWF)>,
+    phantom: PhantomData<(Message, STF, SWF)>,
 
     /// Entry point to create and get channels to a WebGLThread.
     webgl_threads: Option<WebGLThreads>,
@@ -610,15 +615,15 @@ where
     crossbeam_receiver
 }
 
-impl<Message, LTF, STF, SWF> Constellation<Message, LTF, STF, SWF>
+impl<Message, STF, SWF> Constellation<Message, STF, SWF>
 where
-    LTF: LayoutThreadFactory<Message = Message>,
-    STF: ScriptThreadFactory<LTF, Message = Message>,
+    STF: ScriptThreadFactory<Message = Message>,
     SWF: ServiceWorkerManagerFactory,
 {
     /// Create a new constellation thread.
     pub fn start(
         state: InitialConstellationState,
+        layout_factory: Arc<dyn LayoutFactory>,
         initial_window_size: WindowSizeData,
         random_pipeline_closure_probability: Option<f32>,
         random_pipeline_closure_seed: Option<usize>,
@@ -738,7 +743,7 @@ where
                     wgpu_image_map: state.wgpu_image_map,
                 };
 
-                let mut constellation: Constellation<Message, LTF, STF, SWF> = Constellation {
+                let mut constellation: Constellation<Message, STF, SWF> = Constellation {
                     namespace_receiver,
                     namespace_ipc_sender,
                     script_sender: script_ipc_sender,
@@ -749,6 +754,7 @@ where
                     layout_sender: layout_ipc_sender,
                     script_receiver: script_receiver,
                     compositor_receiver: compositor_receiver,
+                    layout_factory,
                     layout_receiver: layout_receiver,
                     network_listener_sender: network_listener_sender,
                     network_listener_receiver: network_listener_receiver,
@@ -1020,7 +1026,7 @@ where
             self.public_resource_threads.clone()
         };
 
-        let result = Pipeline::spawn::<Message, LTF, STF>(InitialPipelineState {
+        let result = Pipeline::spawn::<Message, STF>(InitialPipelineState {
             id: pipeline_id,
             browsing_context_id,
             top_level_browsing_context_id,
@@ -1064,7 +1070,9 @@ where
             player_context: self.player_context.clone(),
             event_loop_waker: None,
             user_agent: self.user_agent.clone(),
-        });
+        },
+        self.layout_factory.clone(),
+        );
 
         let pipeline = match result {
             Ok(result) => result,
@@ -1649,11 +1657,11 @@ where
             FromScriptMsg::ScriptLoadedURLInIFrame(load_info) => {
                 self.handle_script_loaded_url_in_iframe_msg(load_info);
             },
-            FromScriptMsg::ScriptNewIFrame(load_info, response_sender) => {
-                self.handle_script_new_iframe(load_info, response_sender);
+            FromScriptMsg::ScriptNewIFrame(load_info) => {
+                self.handle_script_new_iframe(load_info);
             },
-            FromScriptMsg::ScriptNewAuxiliary(load_info, response_sender) => {
-                self.handle_script_new_auxiliary(load_info, response_sender);
+            FromScriptMsg::ScriptNewAuxiliary(load_info ) => {
+                self.handle_script_new_auxiliary(load_info);
             },
             FromScriptMsg::ChangeRunningAnimationsState(animation_state) => {
                 self.handle_change_running_animations_state(source_pipeline_id, animation_state)
@@ -3233,7 +3241,6 @@ where
     fn handle_script_new_iframe(
         &mut self,
         load_info: IFrameLoadInfoWithData,
-        layout_sender: IpcSender<LayoutControlMsg>,
     ) {
         let IFrameLoadInfo {
             parent_pipeline_id,
@@ -3271,7 +3278,6 @@ where
             top_level_browsing_context_id,
             None,
             script_sender,
-            layout_sender,
             self.compositor_proxy.clone(),
             is_parent_visible,
             load_info.load_data,
@@ -3298,7 +3304,6 @@ where
     fn handle_script_new_auxiliary(
         &mut self,
         load_info: AuxiliaryBrowsingContextLoadInfo,
-        layout_sender: IpcSender<LayoutControlMsg>,
     ) {
         let AuxiliaryBrowsingContextLoadInfo {
             load_data,
@@ -3334,7 +3339,6 @@ where
             new_top_level_browsing_context_id,
             Some(opener_browsing_context_id),
             script_sender,
-            layout_sender,
             self.compositor_proxy.clone(),
             is_opener_visible,
             load_data,
@@ -4988,8 +4992,9 @@ where
             // before we check whether the document is ready; otherwise,
             // there's a race condition where a webfont has finished loading,
             // but hasn't yet notified the document.
-            let msg = LayoutControlMsg::GetWebFontLoadState(state_sender.clone());
-            if let Err(e) = pipeline.layout_chan.send(msg) {
+            let msg = ConstellationControlMsg::ForLayoutFromConstellation(
+                LayoutControlMsg::GetWebFontLoadState(state_sender.clone()), pipeline.id);
+            if let Err(e) = pipeline.event_loop.send(msg) {
                 warn!("Get web font failed ({})", e);
             }
             if state_receiver.recv().unwrap_or(true) {
@@ -5022,8 +5027,9 @@ where
                     // epoch matches what the compositor has drawn. If they match
                     // (and script is idle) then this pipeline won't change again
                     // and can be considered stable.
-                    let message = LayoutControlMsg::GetCurrentEpoch(epoch_ipc_sender.clone());
-                    if let Err(e) = pipeline.layout_chan.send(message) {
+                    let message = ConstellationControlMsg::ForLayoutFromConstellation(
+                        LayoutControlMsg::GetCurrentEpoch(epoch_ipc_sender.clone()), pipeline_id);
+                    if let Err(e) = pipeline.event_loop.send(message) {
                         warn!("Failed to send GetCurrentEpoch ({}).", e);
                     }
                     match epoch_ipc_receiver.recv() {

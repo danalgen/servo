@@ -220,12 +220,9 @@ pub enum ScriptMsg {
     /// A load has been requested in an IFrame.
     ScriptLoadedURLInIFrame(IFrameLoadInfoWithData),
     /// A load of the initial `about:blank` has been completed in an IFrame.
-    ScriptNewIFrame(IFrameLoadInfoWithData, IpcSender<LayoutControlMsg>),
+    ScriptNewIFrame(IFrameLoadInfoWithData),
     /// Script has opened a new auxiliary browsing context.
-    ScriptNewAuxiliary(
-        AuxiliaryBrowsingContextLoadInfo,
-        IpcSender<LayoutControlMsg>,
-    ),
+    ScriptNewAuxiliary(AuxiliaryBrowsingContextLoadInfo),
     /// Mark a new document as active
     ActivateDocument,
     /// Set the document state for a pipeline (used by screenshot / reftests)

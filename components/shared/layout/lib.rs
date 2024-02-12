@@ -9,6 +9,7 @@
 // The traits are here instead of in layout so
 //   that these modules won't have to depend on layout.
 
+use std::rc::Rc;
 use std::{borrow::Cow, sync::atomic::AtomicBool};
 use std::sync::Arc;
 
@@ -27,12 +28,11 @@ use script_traits::{
 use servo_url::ServoUrl;
 
 
-pub struct LayoutThreadConfig {
+pub struct LayoutConfig {
     pub id: PipelineId,
     pub top_level_browsing_context_id: TopLevelBrowsingContextId,
     pub url: ServoUrl,
     pub is_iframe: bool,
-    pub background_hang_monitor: Box<dyn BackgroundHangMonitorRegister>,
     pub constellation_chan: IpcSender<ConstellationMsg>,
     pub script_chan: IpcSender<ConstellationControlMsg>,
     pub image_cache: Arc<dyn ImageCache>,
@@ -46,11 +46,10 @@ pub struct LayoutThreadConfig {
 }
 
 /// The initial data required to create a new layout attached to an existing script thread.
-pub struct LayoutThreadChildConfig {
+pub struct LayoutChildConfig {
     pub id: PipelineId,
     pub url: ServoUrl,
     pub is_parent: bool,
-    pub background_hang_monitor_register: Box<dyn BackgroundHangMonitorRegister>,
     pub constellation_chan: IpcSender<ConstellationMsg>,
     pub script_chan: IpcSender<ConstellationControlMsg>,
     pub image_cache: Arc<dyn ImageCache>,
@@ -58,21 +57,20 @@ pub struct LayoutThreadChildConfig {
     pub layout_is_busy: Arc<AtomicBool>,
     pub window_size: WindowSizeData,
 }
-pub trait LayoutThreadFactory {
-    type Message;
-    fn create(config: LayoutThreadConfig) -> Box<dyn Layout>;
+pub trait LayoutFactory: Send + Sync {
+    fn create(&self, config: LayoutConfig) -> Box<dyn Layout>;
 }
 
 /// This trait allows creating a `ScriptThread` without depending on the `script`
 /// crate.
-pub trait ScriptThreadFactory<LTF> {
+pub trait ScriptThreadFactory {
     /// Type of message sent from script to layout.
     type Message;
     /// Create a `ScriptThread`.
     fn create(
         state: InitialScriptState,
+        layout_factory: Arc<dyn LayoutFactory>,
         font_cache_thread: FontCacheThread,
-        constellation_to_layout_receiver: IpcReceiver<LayoutControlMsg>,
         load_data: LoadData,
         user_agent: Cow<'static, str>,
     ) -> (Sender<Self::Message>, Receiver<Self::Message>);
@@ -82,6 +80,6 @@ pub trait Layout {
     fn process(&mut self, msg: script_layout_interface::message::Msg);
     fn handle_constellation_msg(&mut self, msg: script_traits::LayoutControlMsg);
     fn handle_font_cache_msg(&mut self);
-    fn create_new_layout(&self, init: LayoutThreadChildConfig) -> Box<dyn Layout>;
+    fn create_new_layout(&self, init: LayoutChildConfig) -> Box<dyn Layout>;
     fn rpc(&self) -> Box<dyn script_layout_interface::rpc::LayoutRPC>;
 }

@@ -1893,7 +1893,7 @@ impl Window {
             animations: document.animations().sets.clone(),
         };
 
-        self.with_layout(Box::new(
+        let _ = self.with_layout(Box::new(
             move |layout: &mut dyn Layout| {
                 layout.process(Msg::Reflow(reflow))
             }

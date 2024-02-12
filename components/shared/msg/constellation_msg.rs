@@ -459,7 +459,6 @@ pub enum LayoutHangAnnotation {
     Reflow,
     GetRPC,
     CollectReports,
-    PrepareToExit,
     ExitNow,
     GetCurrentEpoch,
     GetWebFontLoadState,

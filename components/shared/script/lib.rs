@@ -233,8 +233,6 @@ pub struct NewLayoutInfo {
     pub load_data: LoadData,
     /// Information about the initial window size.
     pub window_size: WindowSizeData,
-    /// A port on which layout can receive messages from the pipeline.
-    pub pipeline_port: IpcReceiver<LayoutControlMsg>,
 }
 
 /// When a pipeline is closed, should its browsing context be discarded too?
@@ -401,6 +399,10 @@ pub enum ConstellationControlMsg {
     MediaSessionAction(PipelineId, MediaSessionActionType),
     /// Notifies script thread that WebGPU server has started
     SetWebGPUPort(IpcReceiver<WebGPUMsg>),
+    /// A mesage for a layout from the constellation.
+    ForLayoutFromConstellation(LayoutControlMsg, PipelineId),
+    /// A message for a layout from the font cache.
+    ForLayoutFromFontCache(PipelineId),
 }
 
 impl fmt::Debug for ConstellationControlMsg {
@@ -439,6 +441,8 @@ impl fmt::Debug for ConstellationControlMsg {
             ExitFullScreen(..) => "ExitFullScreen",
             MediaSessionAction(..) => "MediaSessionAction",
             SetWebGPUPort(..) => "SetWebGPUPort",
+            ForLayoutFromConstellation(..) => "ForLayoutFromConstellation",
+            ForLayoutFromFontCache(..) => "ForLayoutFromFontCache",
         };
         write!(formatter, "ConstellationControlMsg::{}", variant)
     }

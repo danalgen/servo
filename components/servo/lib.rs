@@ -20,6 +20,7 @@
 use std::borrow::{BorrowMut, Cow};
 use std::cmp::max;
 use std::collections::HashMap;
+use std::f64::consts::E;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -65,6 +66,7 @@ pub use gfx::rendering_context;
 use gfx::rendering_context::RenderingContext;
 pub use gleam::gl;
 use ipc_channel::ipc::{self, IpcSender};
+use layout_traits::LayoutFactory;
 use log::{error, trace, warn, Log, Metadata, Record};
 use media::{GLPlayerThreads, GlApi, NativeDisplay, WindowGLContext};
 pub use msg::constellation_msg::TopLevelBrowsingContextId;
@@ -979,24 +981,19 @@ fn create_constellation(
         wgpu_image_map,
     };
 
-    let start_constellation_chan = if opts::get().legacy_layout {
-        Constellation::<
-            script_layout_interface::message::Msg,
-            layout_thread_2013::LayoutThread,
-            script::script_thread::ScriptThread,
-            script::serviceworker_manager::ServiceWorkerManager,
-        >::start
+    let layout_factory: Arc<dyn LayoutFactory> = if opts::get().legacy_layout {
+        Arc::new(layout_thread_2013::LayoutFactoryImpl())
     } else {
-        Constellation::<
-            script_layout_interface::message::Msg,
-            layout_thread_2020::LayoutThread,
-            script::script_thread::ScriptThread,
-            script::serviceworker_manager::ServiceWorkerManager,
-        >::start
+        Arc::new(layout_thread_2020::LayoutFactoryImpl())
     };
 
-    start_constellation_chan(
+    Constellation::<
+        script_layout_interface::message::Msg,
+        script::script_thread::ScriptThread,
+        script::serviceworker_manager::ServiceWorkerManager,
+    >::start(
         initial_state,
+        layout_factory,
         initial_window_size,
         opts.random_pipeline_closure_probability,
         opts.random_pipeline_closure_seed,
@@ -1122,21 +1119,18 @@ pub fn run_content_process(token: String) {
             set_logger(content.script_to_constellation_chan().clone());
 
             let background_hang_monitor_register = content.register_with_background_hang_monitor();
-            if opts::get().legacy_layout {
-                content.start_all::<script_layout_interface::message::Msg,
-                                    layout_thread_2013::LayoutThread,
-                                    script::script_thread::ScriptThread>(
-                                        true,
-                                        background_hang_monitor_register,
-                                    );
+            let layout_factory: Arc<dyn LayoutFactory> = if opts::get().legacy_layout {
+                Arc::new(layout_thread_2013::LayoutFactoryImpl())
             } else {
-                content.start_all::<script_layout_interface::message::Msg,
-                                    layout_thread_2020::LayoutThread,
-                                    script::script_thread::ScriptThread>(
-                                        true,
-                                        background_hang_monitor_register,
-                                    );
-            }
+                Arc::new(layout_thread_2020::LayoutFactoryImpl())
+            };
+
+            content.start_all::<script_layout_interface::message::Msg,
+                                script::script_thread::ScriptThread>(
+                true,
+                layout_factory,
+                background_hang_monitor_register,
+            );
         },
         UnprivilegedContent::ServiceWorker(content) => {
             content.start::<ServiceWorkerManager>();

@@ -56,11 +56,6 @@ pub enum Msg {
     /// via the supplied channel.
     CollectReports(ReportsChan),
 
-    /// Requests that the layout thread enter a quiescent state in which no more messages are
-    /// accepted except `ExitMsg`. A response message will be sent on the supplied channel when
-    /// this happens.
-    PrepareToExit(Sender<()>),
-
     /// Requests that the layout thread immediately shut down. There must be no more nodes left after
     /// this, or layout will crash.
     ExitNow,

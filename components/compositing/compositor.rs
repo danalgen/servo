@@ -37,9 +37,7 @@ use profile_traits::time::{self as profile_time, profile, ProfilerCategory};
 use script_traits::compositor::{HitTestInfo, ScrollTree};
 use script_traits::CompositorEvent::{MouseButtonEvent, MouseMoveEvent, TouchEvent, WheelEvent};
 use script_traits::{
-    AnimationState, AnimationTickType, CompositorHitTestResult, LayoutControlMsg, MouseButton,
-    MouseEventType, ScrollState, TouchEventType, TouchId, UntrustedNodeAddress, WheelDelta,
-    WindowSizeData, WindowSizeType,
+    AnimationState, AnimationTickType, CompositorHitTestResult, ConstellationControlMsg, LayoutControlMsg, MouseButton, MouseEventType, ScrollState, TouchEventType, TouchId, UntrustedNodeAddress, WheelDelta, WindowSizeData, WindowSizeType
 };
 use servo_geometry::{DeviceIndependentPixel, FramebufferUintLength};
 use style_traits::{CSSPixel, DevicePixel, PinchZoomFactor};
@@ -1606,9 +1604,9 @@ impl<Window: WindowMethods + ?Sized> IOCompositor<Window> {
         });
 
         if let Some(pipeline) = details.pipeline.as_ref() {
-            let _ = pipeline
-                .layout_chan
-                .send(LayoutControlMsg::SetScrollStates(scroll_states));
+            let message = ConstellationControlMsg::ForLayoutFromConstellation(
+                LayoutControlMsg::SetScrollStates(scroll_states), *pipeline_id);
+            let _ = pipeline.script_chan.send(message);
         }
     }
 
@@ -1818,8 +1816,9 @@ impl<Window: WindowMethods + ?Sized> IOCompositor<Window> {
                     to_remove.push(id.clone());
                     if let Some(pipeline) = self.pipeline(*id) {
                         // and inform the layout thread with the measured paint time.
-                        let msg = LayoutControlMsg::PaintMetric(epoch, paint_time);
-                        if let Err(e) = pipeline.layout_chan.send(msg) {
+                        let message = LayoutControlMsg::PaintMetric(epoch, paint_time);
+                        let message = ConstellationControlMsg::ForLayoutFromConstellation(message, *id);
+                        if let Err(e) = pipeline.script_chan.send(message) {
                             warn!("Sending PaintMetric message to layout failed ({:?}).", e);
                         }
                     }

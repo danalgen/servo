@@ -200,8 +200,6 @@ impl HTMLIFrameElement {
 
         match pipeline_type {
             PipelineType::InitialAboutBlank => {
-                let (pipeline_sender, pipeline_receiver) = ipc::channel().unwrap();
-
                 self.about_blank_pipeline_id.set(Some(new_pipeline_id));
 
                 let load_info = IFrameLoadInfoWithData {
@@ -213,7 +211,7 @@ impl HTMLIFrameElement {
                 };
                 global_scope
                     .script_to_constellation_chan()
-                    .send(ScriptMsg::ScriptNewIFrame(load_info, pipeline_sender))
+                    .send(ScriptMsg::ScriptNewIFrame(load_info))
                     .unwrap();
 
                 let new_layout_info = NewLayoutInfo {
@@ -223,7 +221,6 @@ impl HTMLIFrameElement {
                     top_level_browsing_context_id: top_level_browsing_context_id,
                     opener: None,
                     load_data: load_data,
-                    pipeline_port: pipeline_receiver,
                     window_size,
                 };
 

@@ -73,7 +73,7 @@ use parking_lot::Mutex;
 use percent_encoding::percent_decode;
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};
 use profile_traits::time::{self as profile_time, profile, ProfilerCategory};
-use layout_traits::{Layout, LayoutThreadConfig, ScriptThreadFactory};
+use layout_traits::{Layout, LayoutFactory, LayoutConfig, ScriptThreadFactory};
 use script_layout_interface::message::{self, Msg, ReflowGoal};
 use script_traits::webdriver_msg::WebDriverScriptCommand;
 use script_traits::CompositorEvent::{
@@ -730,6 +730,10 @@ pub struct ScriptThread {
     /// The layouts that we control.
     #[no_trace]
     layouts: RefCell<HashMap<PipelineId, Box<dyn Layout>>>,
+
+    /// A factory for making new layouts. This allows layout to depend on script.
+    #[no_trace]
+    layout_factory: Arc<dyn LayoutFactory>,
 }
 
 struct BHMExitSignal {
@@ -782,24 +786,23 @@ impl<'a> Drop for ScriptMemoryFailsafe<'a> {
     }
 }
 
-impl<LTF> ScriptThreadFactory<LTF> for ScriptThread {
+impl ScriptThreadFactory for ScriptThread {
     type Message = message::Msg;
 
     fn create(
         state: InitialScriptState,
+        layout_factory: Arc<dyn LayoutFactory>,
         font_cache_thread: FontCacheThread,
-        constellation_to_layout_receiver: IpcReceiver<LayoutControlMsg>,
         load_data: LoadData,
         user_agent: Cow<'static, str>,
     ) -> (Sender<message::Msg>, Receiver<message::Msg>) {
         let (script_chan, script_port) = unbounded();
 
         let (sender, receiver) = unbounded();
-        let layout_chan = sender.clone();
         thread::Builder::new()
             .name(format!("Script{:?}", state.id))
             .spawn(move || {
-                thread_state::initialize(ThreadState::SCRIPT);
+                thread_state::initialize(ThreadState::SCRIPT | ThreadState::LAYOUT);
                 PipelineNamespace::install(state.pipeline_namespace_id);
                 TopLevelBrowsingContextId::install(state.top_level_browsing_context_id);
                 let roots = RootCollection::new();
@@ -814,7 +817,7 @@ impl<LTF> ScriptThreadFactory<LTF> for ScriptThread {
                 let window_size = state.window_size;
 
                 let script_thread =
-                    ScriptThread::new(state, script_port, script_chan.clone(), font_cache_thread, user_agent);
+                    ScriptThread::new(state, script_port, script_chan.clone(), layout_factory, font_cache_thread, user_agent);
 
                 SCRIPT_THREAD_ROOT.with(|root| {
                     root.set(Some(&script_thread as *const _));
@@ -1297,6 +1300,7 @@ impl ScriptThread {
         state: InitialScriptState,
         port: Receiver<MainThreadScriptMsg>,
         chan: Sender<MainThreadScriptMsg>,
+        layout_factory: Arc<dyn LayoutFactory>,
         font_cache_thread: FontCacheThread,
         user_agent: Cow<'static, str>,
     ) -> ScriptThread {
@@ -1433,6 +1437,7 @@ impl ScriptThread {
             webgpu_port: RefCell::new(None),
             inherited_secure_context: state.inherited_secure_context,
             layouts: Default::default(),
+            layout_factory,
         }
     }
 
@@ -1854,6 +1859,8 @@ impl ScriptThread {
                 ExitFullScreen(id, ..) => Some(id),
                 MediaSessionAction(..) => None,
                 SetWebGPUPort(..) => None,
+                ForLayoutFromConstellation(_, id) => Some(id),
+                ForLayoutFromFontCache(id) => Some(id),
             },
             MixedMessage::FromDevtools(_) => None,
             MixedMessage::FromScript(ref inner_msg) => match *inner_msg {
@@ -2088,6 +2095,12 @@ impl ScriptThread {
             msg @ ConstellationControlMsg::ExitScriptThread => {
                 panic!("should have handled {:?} already", msg)
             },
+            ConstellationControlMsg::ForLayoutFromConstellation(msg, pipeline_id) => {
+                self.handle_layout_message(msg, pipeline_id)
+            }
+            ConstellationControlMsg::ForLayoutFromFontCache(pipeline_id) => {
+                self.handle_font_cache(pipeline_id)
+            }
         }
     }
 
@@ -2534,48 +2547,7 @@ impl ScriptThread {
             opener,
             load_data,
             window_size,
-            pipeline_port,
         } = new_layout_info;
-
-        //let msg = message::Msg::CreateLayoutThread(LayoutThreadChildConfig {
-        //    id: new_pipeline_id,
-        //    url: load_data.url.clone(),
-        //    is_parent: false,
-        //    pipeline_port: pipeline_port,
-        //    background_hang_monitor_register: self.background_hang_monitor_register.clone(),
-        //    constellation_chan: self.layout_to_constellation_chan.clone(),
-        //    script_chan: self.control_chan.clone(),
-        //    image_cache: self.image_cache.clone(),
-        //    paint_time_metrics: PaintTimeMetrics::new(
-        //        new_pipeline_id,
-        //        self.time_profiler_chan.clone(),
-        //        self.layout_to_constellation_chan.clone(),
-        //        self.control_chan.clone(),
-        //        load_data.url.clone(),
-        //    ),
-        //    layout_is_busy: layout_is_busy.clone(),
-        //    window_size,
-        //});
-
-        // Pick a layout thread, any layout thread
-        //let current_layout_chan: Option<Sender<Msg>> = self
-        //    .documents
-        //    .borrow()
-        //    .iter()
-        //    .next()
-        //    .and_then(|(_, document)| document.window().layout_chan().cloned())
-        //    .or_else(|| {
-        //        self.incomplete_loads
-        //            .borrow()
-        //            .first()
-        //            .map(|load| load.layout_chan.clone())
-        //    });
-
-        //match current_layout_chan {
-        //    None => panic!("Layout attached to empty script thread."),
-        //    // Tell the layout thread factory to actually spawn the thread.
-        //    Some(layout_chan) => layout_chan.send(msg).unwrap(),
-        //};
 
         // Kick off the fetch for the new resource.
         let new_load = InProgressLoad::new(
@@ -2939,42 +2911,28 @@ impl ScriptThread {
 
     /// Handles a request to exit a pipeline and shut down layout.
     fn handle_exit_pipeline_msg(&self, id: PipelineId, discard_bc: DiscardBrowsingContext) {
-        debug!("Exiting pipeline {}.", id);
+        println!("Exiting pipeline {}.", id);
 
         self.closed_pipelines.borrow_mut().insert(id);
 
-        // Check if the exit message is for an in progress load.
-        let idx = self
-            .incomplete_loads
-            .borrow()
-            .iter()
-            .position(|load| load.pipeline_id == id);
-
-        let document = self.documents.borrow_mut().remove(id);
-
         // Abort the parser, if any,
         // to prevent any further incoming networking messages from being handled.
-        if let Some(document) = document.as_ref() {
+        if let Some(document) = self.documents.borrow_mut().remove(id) {
             if let Some(parser) = document.get_current_parser() {
                 parser.abort();
             }
-        }
 
-        // We should never have a pipeline that's still an incomplete load,
-        // but also has a Document.
-        debug_assert!(idx.is_none() || document.is_none());
-
-        // Now that layout is shut down, it's OK to remove the document.
-        if let Some(document) = document {
-            debug!("Shutting down layout for page ({})", id);
+            println!("Shutting down layout for page ({})", id);
             let _ = document.window().with_layout(Box::new(|layout: &mut dyn Layout| {
                 layout.process(Msg::ExitNow);
             }));
 
             // Clear any active animations and unroot all of the associated DOM objects.
+            println!("\ta");
             document.animations().clear();
 
             // We don't want to dispatch `mouseout` event pointing to non-existing element
+            println!("\tb");
             if let Some(target) = self.topmost_mouse_over_target.get() {
                 if target.upcast::<Node>().owner_doc() == document {
                     self.topmost_mouse_over_target.set(None);
@@ -2983,13 +2941,16 @@ impl ScriptThread {
 
             // We discard the browsing context after requesting layout shut down,
             // to avoid running layout on detached iframes.
+            println!("\tc");
             let window = document.window();
             if discard_bc == DiscardBrowsingContext::Yes {
                 window.discard_browsing_context();
             }
+            println!("\td");
             window.clear_js_runtime();
         }
 
+        println!("\te");
         debug!("Exited pipeline {}.", id);
     }
 
@@ -3295,7 +3256,6 @@ impl ScriptThread {
             self.websocket_task_source(incomplete.pipeline_id),
         );
 
-        // Create layout channel here!
         let paint_time_metrics = PaintTimeMetrics::new(
             incomplete.pipeline_id,
             self.time_profiler_chan.clone(),
@@ -3304,13 +3264,12 @@ impl ScriptThread {
             final_url.clone(),
         );
         let layout_is_busy = Arc::new(AtomicBool::new(false));
-        let layout_config = LayoutThreadConfig {
+        let layout_config = LayoutConfig {
             id: incomplete.pipeline_id,
             top_level_browsing_context_id: incomplete.top_level_browsing_context_id,
             url: final_url.clone(),
             is_iframe: incomplete.parent_info.is_some(),
-            background_hang_monitor: self.background_hang_monitor_register.clone(),
-            constellation_chan: self.layout_to_constellation_chan,
+            constellation_chan: self.layout_to_constellation_chan.clone(),
             script_chan: self.control_chan.clone(),
             image_cache: self.image_cache.clone(),
             font_cache_thread: self.font_cache_thread.clone(),
@@ -3321,6 +3280,9 @@ impl ScriptThread {
             busy: layout_is_busy.clone(),
             window_size: incomplete.window_size.clone(),
         };
+        self.layouts.borrow_mut().insert(
+            incomplete.pipeline_id,
+                self.layout_factory.create(layout_config));
 
         // Create the window and document objects.
         let window = Window::new(

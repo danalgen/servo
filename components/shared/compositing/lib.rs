@@ -165,7 +165,6 @@ pub struct CompositionPipeline {
     pub id: PipelineId,
     pub top_level_browsing_context_id: TopLevelBrowsingContextId,
     pub script_chan: IpcSender<ConstellationControlMsg>,
-    pub layout_chan: IpcSender<LayoutControlMsg>,
 }
 
 pub enum FontToCompositorMsg {

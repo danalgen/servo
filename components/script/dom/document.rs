@@ -30,6 +30,7 @@ use js::jsapi::JSObject;
 use js::rust::HandleObject;
 use keyboard_types::{Code, Key, KeyState};
 use lazy_static::lazy_static;
+use layout_traits::Layout;
 use metrics::{
     InteractiveFlag, InteractiveMetrics, InteractiveWindow, ProfilerMetadataFactory,
     ProgressiveWebMetric,
@@ -827,10 +828,9 @@ impl Document {
         let old_mode = self.quirks_mode.replace(new_mode);
 
         if old_mode != new_mode {
-            match self.window.layout_chan() {
-                Some(chan) => chan.send(Msg::SetQuirksMode(new_mode)).unwrap(),
-                None => warn!("Layout channel unavailable"),
-            }
+            let _ = self.window.with_layout(Box::new(move |layout: &mut dyn Layout| {
+                layout.process(Msg::SetQuirksMode(new_mode))
+            }));
         }
     }
 
@@ -3830,15 +3830,14 @@ impl Document {
             })
             .cloned();
 
-        match self.window.layout_chan() {
-            Some(chan) => chan
-                .send(Msg::AddStylesheet(
-                    sheet.clone(),
-                    insertion_point.as_ref().map(|s| s.sheet.clone()),
-                ))
-                .unwrap(),
-            None => return warn!("Layout channel unavailable"),
-        }
+        let cloned_stylesheet = sheet.clone();
+        let insertion_point2 = insertion_point.clone();
+        let _ = self.window.with_layout(Box::new(move |layout: &mut dyn Layout| {
+            layout.process(Msg::AddStylesheet(
+                cloned_stylesheet,
+                insertion_point2.as_ref().map(|s| s.sheet.clone()),
+            ))
+        }));
 
         DocumentOrShadowRoot::add_stylesheet(
             owner,
@@ -3851,15 +3850,15 @@ impl Document {
 
     /// Remove a stylesheet owned by `owner` from the list of document sheets.
     #[allow(crown::unrooted_must_root)] // Owner needs to be rooted already necessarily.
-    pub fn remove_stylesheet(&self, owner: &Element, s: &Arc<Stylesheet>) {
-        match self.window.layout_chan() {
-            Some(chan) => chan.send(Msg::RemoveStylesheet(s.clone())).unwrap(),
-            None => return warn!("Layout channel unavailable"),
-        }
+    pub fn remove_stylesheet(&self, owner: &Element, stylesheet: &Arc<Stylesheet>) {
+        let cloned_stylesheet = stylesheet.clone();
+        let _ = self.window.with_layout(Box::new(|layout: &mut dyn Layout| {
+            layout.process(Msg::RemoveStylesheet(cloned_stylesheet))
+        }));
 
         DocumentOrShadowRoot::remove_stylesheet(
             owner,
-            s,
+            stylesheet,
             StylesheetSetRef::Document(&mut *self.stylesheets.borrow_mut()),
         )
     }
