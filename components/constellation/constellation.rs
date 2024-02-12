@@ -270,7 +270,7 @@ struct BrowsingContextGroup {
 /// `LayoutThread` in the `layout` crate, and `ScriptThread` in
 /// the `script` crate). Script and layout communicate using a `Message`
 /// type.
-pub struct Constellation<Message, STF, SWF> {
+pub struct Constellation<STF, SWF> {
     /// An ipc-sender/threaded-receiver pair
     /// to facilitate installing pipeline namespaces in threads
     /// via a per-process installer.
@@ -460,7 +460,7 @@ pub struct Constellation<Message, STF, SWF> {
     random_pipeline_closure: Option<(ServoRng, f32)>,
 
     /// Phantom data that keeps the Rust type system happy.
-    phantom: PhantomData<(Message, STF, SWF)>,
+    phantom: PhantomData<(STF, SWF)>,
 
     /// Entry point to create and get channels to a WebGLThread.
     webgl_threads: Option<WebGLThreads>,
@@ -615,9 +615,9 @@ where
     crossbeam_receiver
 }
 
-impl<Message, STF, SWF> Constellation<Message, STF, SWF>
+impl<STF, SWF> Constellation<STF, SWF>
 where
-    STF: ScriptThreadFactory<Message = Message>,
+    STF: ScriptThreadFactory,
     SWF: ServiceWorkerManagerFactory,
 {
     /// Create a new constellation thread.
@@ -743,7 +743,7 @@ where
                     wgpu_image_map: state.wgpu_image_map,
                 };
 
-                let mut constellation: Constellation<Message, STF, SWF> = Constellation {
+                let mut constellation: Constellation<STF, SWF> = Constellation {
                     namespace_receiver,
                     namespace_ipc_sender,
                     script_sender: script_ipc_sender,
@@ -1026,7 +1026,7 @@ where
             self.public_resource_threads.clone()
         };
 
-        let result = Pipeline::spawn::<Message, STF>(InitialPipelineState {
+        let result = Pipeline::spawn::<STF>(InitialPipelineState {
             id: pipeline_id,
             browsing_context_id,
             top_level_browsing_context_id,

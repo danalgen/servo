@@ -18,14 +18,13 @@ pub mod webdriver_msg;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use bitflags::bitflags;
 use bluetooth_traits::BluetoothRequest;
 use canvas_traits::webgl::WebGLPipeline;
 use compositor::ScrollTreeNodeId;
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use crossbeam_channel::{RecvTimeoutError, Sender};
 use devtools_traits::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg, WorkerId};
 use embedder_traits::{CompositorEventVariant, Cursor};
 use euclid::default::Point2D;

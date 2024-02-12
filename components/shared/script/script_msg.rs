@@ -29,7 +29,7 @@ use webrender_api::units::{DeviceIntPoint, DeviceIntSize};
 
 use crate::{
     AnimationState, AuxiliaryBrowsingContextLoadInfo, BroadcastMsg, DocumentState,
-    IFrameLoadInfoWithData, LayoutControlMsg, LoadData, MessagePortMsg, PortMessageTask,
+    IFrameLoadInfoWithData, LoadData, MessagePortMsg, PortMessageTask,
     StructuredSerializedData, WindowSizeType, WorkerGlobalScopeInit, WorkerScriptLoadOrigin,
 };
 

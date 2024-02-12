@@ -7,7 +7,6 @@ use std::cell::Cell;
 use bitflags::bitflags;
 use dom_struct::dom_struct;
 use html5ever::{local_name, namespace_url, ns, LocalName, Prefix};
-use ipc_channel::ipc;
 use js::rust::HandleObject;
 use msg::constellation_msg::{BrowsingContextId, PipelineId, TopLevelBrowsingContextId};
 use profile_traits::ipc as ProfiledIpc;

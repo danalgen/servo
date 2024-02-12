@@ -20,7 +20,7 @@ use msg::constellation_msg::{PipelineId, TopLevelBrowsingContextId};
 use net_traits::image::base::Image;
 use net_traits::NetToCompositorMsg;
 use script_traits::{
-    AnimationState, ConstellationControlMsg, EventResult, LayoutControlMsg, MouseButton,
+    AnimationState, ConstellationControlMsg, EventResult, MouseButton,
     MouseEventType, ScriptToCompositorMsg,
 };
 use style_traits::CSSPixel;

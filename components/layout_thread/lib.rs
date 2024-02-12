@@ -12,7 +12,7 @@ use std::borrow::ToOwned;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::process;
 
@@ -26,7 +26,7 @@ use gfx::font_cache_thread::FontCacheThread;
 use gfx::{font, font_context};
 use gfx_traits::{node_id_from_scroll_id, Epoch};
 use histogram::Histogram;
-use ipc_channel::ipc::{self, IpcReceiver, IpcSender};
+use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
 use layout::construct::ConstructionResult;
 use layout::context::{
@@ -53,12 +53,8 @@ use script_layout_interface::{Layout, LayoutConfig, LayoutChildConfig, LayoutFac
 use lazy_static::lazy_static;
 use log::{debug, error, trace, warn};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
-use metrics::{PaintTimeMetrics, ProfilerMetadataFactory, ProgressiveWebMetric};
-use msg::constellation_msg::{
-    BackgroundHangMonitor, BackgroundHangMonitorRegister, BrowsingContextId, HangAnnotation,
-    LayoutHangAnnotation, MonitoredComponentId, MonitoredComponentType, PipelineId,
-    TopLevelBrowsingContextId,
-};
+use metrics::{PaintTimeMetrics, ProfilerMetadataFactory};
+use msg::constellation_msg::{BrowsingContextId, PipelineId, TopLevelBrowsingContextId};
 use net_traits::image_cache::{ImageCache, UsePlaceholder};
 use parking_lot::RwLock;
 use profile_traits::mem::{self as profile_mem, Report, ReportKind, ReportsChan};
@@ -101,7 +97,6 @@ use style::stylesheets::{
     DocumentStyleSheet, Origin, Stylesheet, StylesheetInDocument, UserAgentStylesheets,
 };
 use style::stylist::Stylist;
-use style::thread_state::{self, ThreadState};
 use style::traversal::DomTraversal;
 use style::traversal_flags::TraversalFlags;
 use style_traits::{CSSPixel, DevicePixel, SpeculativePainter};
@@ -606,9 +601,6 @@ impl LayoutThread {
                 let outstanding_web_fonts = self.outstanding_web_fonts.load(Ordering::SeqCst);
                 sender.send(outstanding_web_fonts != 0).unwrap();
             },
-            Msg::SetFinalUrl(final_url) => {
-                self.url = final_url;
-            },
             Msg::RegisterPaint(name, mut properties, painter) => {
                 debug!("Registering the painter");
                 let properties = properties
@@ -630,9 +622,6 @@ impl LayoutThread {
             Msg::ExitNow => {
                 debug!("layout: ExitNow received");
                 self.exit_now();
-            },
-            Msg::SetNavigationStart(time) => {
-                self.paint_time_metrics.set_navigation_start(time);
             },
         }
     }

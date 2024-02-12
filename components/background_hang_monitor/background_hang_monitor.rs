@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{after, never, select, unbounded, Receiver, Sender};
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
-use log::{debug, warn};
+use log::warn;
 use msg::constellation_msg::{
     BackgroundHangMonitor, BackgroundHangMonitorClone, BackgroundHangMonitorControlMsg,
     BackgroundHangMonitorExitSignal, BackgroundHangMonitorRegister, HangAlert, HangAnnotation,
@@ -434,7 +434,6 @@ impl BackgroundHangMonitorWorker {
                         return true;
                     },
                     Ok(BackgroundHangMonitorControlMsg::Exit(sender)) => {
-                        debug!("Signalling all components to exit.");
                         for component in self.monitored_components.values_mut() {
                             component.exit_signal.signal_to_exit();
                         }

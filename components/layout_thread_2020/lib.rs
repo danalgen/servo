@@ -41,7 +41,7 @@ use script_layout_interface::{Layout, LayoutChildConfig, LayoutConfig, LayoutFac
 use lazy_static::lazy_static;
 use log::{debug, error, warn};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
-use metrics::{PaintTimeMetrics, ProfilerMetadataFactory, ProgressiveWebMetric};
+use metrics::{PaintTimeMetrics, ProfilerMetadataFactory};
 use msg::constellation_msg::{BrowsingContextId, PipelineId, TopLevelBrowsingContextId};
 use net_traits::image_cache::{ImageCache, UsePlaceholder};
 use parking_lot::RwLock;
@@ -578,16 +578,10 @@ impl LayoutThread {
                 let outstanding_web_fonts = self.outstanding_web_fonts.load(Ordering::SeqCst);
                 sender.send(outstanding_web_fonts != 0).unwrap();
             },
-            Msg::SetFinalUrl(final_url) => {
-                self.url = final_url;
-            },
             Msg::RegisterPaint(_name, _properties, _painter) => {},
             // Receiving the Exit message at this stage only happens when layout is undergoing a "force exit".
             Msg::ExitNow => {
                 println!("layout: ExitNow received");
-            },
-            Msg::SetNavigationStart(time) => {
-                self.paint_time_metrics.set_navigation_start(time);
             },
         }
     }

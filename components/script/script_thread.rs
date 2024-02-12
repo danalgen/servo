@@ -54,7 +54,7 @@ use js::jsapi::{
 use js::jsval::UndefinedValue;
 use js::rust::ParentRuntime;
 use media::WindowGLContext;
-use metrics::{PaintTimeMetrics, MAX_TASK_NS};
+use metrics::{PaintTimeMetrics, ProgressiveWebMetric, MAX_TASK_NS};
 use mime::{self, Mime};
 use msg::constellation_msg::{
     BackgroundHangMonitor, BackgroundHangMonitorExitSignal, BackgroundHangMonitorRegister,
@@ -74,7 +74,7 @@ use percent_encoding::percent_decode;
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};
 use profile_traits::time::{self as profile_time, profile, ProfilerCategory};
 use script_layout_interface::{Layout, LayoutFactory, LayoutConfig, ScriptThreadFactory};
-use script_layout_interface::message::{self, Msg, ReflowGoal};
+use script_layout_interface::message::{Msg, ReflowGoal};
 use script_traits::webdriver_msg::WebDriverScriptCommand;
 use script_traits::CompositorEvent::{
     CompositionEvent, IMEDismissedEvent, KeyboardEvent, MouseButtonEvent, MouseMoveEvent,
@@ -236,11 +236,6 @@ impl InProgressLoad {
             .unwrap_or_default();
         let navigation_start = duration.as_millis();
         let navigation_start_precise = precise_time_ns();
-        //layout_chan
-        //    .send(message::Msg::SetNavigationStart(
-        //        navigation_start_precise as u64,
-        //    ))
-        //    .unwrap();
         InProgressLoad {
             pipeline_id: id,
             browsing_context_id: browsing_context_id,
@@ -787,18 +782,14 @@ impl<'a> Drop for ScriptMemoryFailsafe<'a> {
 }
 
 impl ScriptThreadFactory for ScriptThread {
-    type Message = message::Msg;
-
     fn create(
         state: InitialScriptState,
         layout_factory: Arc<dyn LayoutFactory>,
         font_cache_thread: FontCacheThread,
         load_data: LoadData,
         user_agent: Cow<'static, str>,
-    ) -> (Sender<message::Msg>, Receiver<message::Msg>) {
+    ) {
         let (script_chan, script_port) = unbounded();
-
-        let (sender, receiver) = unbounded();
         thread::Builder::new()
             .name(format!("Script{:?}", state.id))
             .spawn(move || {
@@ -854,8 +845,6 @@ impl ScriptThreadFactory for ScriptThread {
                 failsafe.neuter();
             })
             .expect("Thread spawning failed");
-
-        (sender, receiver)
     }
 }
 
@@ -3211,13 +3200,6 @@ impl ScriptThread {
     fn load(&self, metadata: Metadata, incomplete: InProgressLoad) -> DomRoot<ServoParser> {
         let final_url = metadata.final_url.clone();
         {
-            // send the final url to the layout thread.
-            //incomplete
-            //    .layout_chan
-            //    .send(message::Msg::SetFinalUrl(final_url.clone()))
-            //    .unwrap();
-
-            // update the pipeline url
             self.script_sender
                 .send((
                     incomplete.pipeline_id,
@@ -3259,13 +3241,15 @@ impl ScriptThread {
             self.websocket_task_source(incomplete.pipeline_id),
         );
 
-        let paint_time_metrics = PaintTimeMetrics::new(
+        let mut paint_time_metrics = PaintTimeMetrics::new(
             incomplete.pipeline_id,
             self.time_profiler_chan.clone(),
             self.layout_to_constellation_chan.clone(),
             self.control_chan.clone(),
             final_url.clone(),
+            incomplete.navigation_start_precise,
         );
+
         let layout_config = LayoutConfig {
             id: incomplete.pipeline_id,
             top_level_browsing_context_id: incomplete.top_level_browsing_context_id,

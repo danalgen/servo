@@ -18,7 +18,6 @@ use std::sync::atomic::AtomicIsize;
 
 use atomic_refcell::AtomicRefCell;
 use canvas_traits::canvas::{CanvasId, CanvasMsg};
-use crossbeam_channel::{Receiver, Sender};
 use gfx::font_cache_thread::FontCacheThread;
 use ipc_channel::ipc::IpcSender;
 use libc::c_void;
@@ -203,17 +202,16 @@ pub trait LayoutFactory: Send + Sync {
 
 pub trait Layout {
     fn process(&mut self, msg: message::Msg);
-    fn handle_constellation_msg(&mut self, msg: script_traits::LayoutControlMsg);
+    fn handle_constellation_msg(&mut self, msg: LayoutControlMsg);
     fn handle_font_cache_msg(&mut self);
     fn create_new_layout(&self, init: LayoutChildConfig) -> Box<dyn Layout>;
     fn rpc(&self) -> Box<dyn rpc::LayoutRPC>;
 }
 
-/// This trait allows creating a `ScriptThread` without depending on the `script`
-/// crate.
+/// This trait is part of `layout_traits` because it depends on both `script_traits` and also
+/// `LayoutFactory` from this crate. If it was in `script_traits` there would be a circular
+/// dependency.
 pub trait ScriptThreadFactory {
-    /// Type of message sent from script to layout.
-    type Message;
     /// Create a `ScriptThread`.
     fn create(
         state: InitialScriptState,
@@ -221,5 +219,5 @@ pub trait ScriptThreadFactory {
         font_cache_thread: FontCacheThread,
         load_data: LoadData,
         user_agent: Cow<'static, str>,
-    ) -> (Sender<Self::Message>, Receiver<Self::Message>);
+    );
 }

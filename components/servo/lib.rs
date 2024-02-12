@@ -20,7 +20,6 @@
 use std::borrow::{BorrowMut, Cow};
 use std::cmp::max;
 use std::collections::HashMap;
-use std::f64::consts::E;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -988,7 +987,6 @@ fn create_constellation(
     };
 
     Constellation::<
-        script_layout_interface::message::Msg,
         script::script_thread::ScriptThread,
         script::serviceworker_manager::ServiceWorkerManager,
     >::start(
@@ -1125,8 +1123,7 @@ pub fn run_content_process(token: String) {
                 Arc::new(layout_thread_2020::LayoutFactoryImpl())
             };
 
-            content.start_all::<script_layout_interface::message::Msg,
-                                script::script_thread::ScriptThread>(
+            content.start_all::<script::script_thread::ScriptThread>(
                 true,
                 layout_factory,
                 background_hang_monitor_register,

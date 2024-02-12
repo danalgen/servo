@@ -10,7 +10,7 @@ use std::default::Default;
 use std::io::{stderr, stdout, Write};
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::{cmp, env, mem};
 
@@ -48,7 +48,7 @@ use num_traits::ToPrimitive;
 use parking_lot::Mutex as ParkMutex;
 use profile_traits::ipc as ProfiledIpc;
 use profile_traits::mem::ProfilerChan as MemProfilerChan;
-use profile_traits::time::{ProfilerChan as TimeProfilerChan, ProfilerMsg};
+use profile_traits::time::{ProfilerChan as TimeProfilerChan};
 use script_layout_interface::message::{Msg, QueryMsg, Reflow, ReflowGoal, ScriptReflow};
 use script_layout_interface::rpc::{
     ContentBoxResponse, ContentBoxesResponse, LayoutRPC, NodeScrollIdResponse,
