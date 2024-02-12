@@ -10,7 +10,7 @@ use ipc_channel::ipc::IpcSender;
 use malloc_size_of_derive::MallocSizeOf;
 use msg::constellation_msg::BrowsingContextId;
 use profile_traits::mem::ReportsChan;
-use script_traits::{Painter, ScrollState, WindowSizeData };
+use script_traits::{Painter, ScrollState, WindowSizeData};
 use servo_arc::Arc as ServoArc;
 use servo_atoms::Atom;
 use servo_url::ImmutableOrigin;

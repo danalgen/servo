@@ -35,7 +35,6 @@ use js::rust::wrappers::JS_DefineProperty;
 use js::rust::{
     CustomAutoRooter, CustomAutoRooterGuard, HandleObject, HandleValue, MutableHandleObject,
 };
-use script_layout_interface::Layout;
 use malloc_size_of::MallocSizeOf;
 use media::WindowGLContext;
 use msg::constellation_msg::{BrowsingContextId, PipelineId};
@@ -48,13 +47,13 @@ use num_traits::ToPrimitive;
 use parking_lot::Mutex as ParkMutex;
 use profile_traits::ipc as ProfiledIpc;
 use profile_traits::mem::ProfilerChan as MemProfilerChan;
-use profile_traits::time::{ProfilerChan as TimeProfilerChan};
+use profile_traits::time::ProfilerChan as TimeProfilerChan;
 use script_layout_interface::message::{Msg, QueryMsg, Reflow, ReflowGoal, ScriptReflow};
 use script_layout_interface::rpc::{
     ContentBoxResponse, ContentBoxesResponse, LayoutRPC, NodeScrollIdResponse,
     ResolvedStyleResponse, TextIndexResponse,
 };
-use script_layout_interface::{PendingImageState, TrustedNodeAddress};
+use script_layout_interface::{Layout, PendingImageState, TrustedNodeAddress};
 use script_traits::webdriver_msg::{WebDriverJSError, WebDriverJSResult};
 use script_traits::{
     ConstellationControlMsg, DocumentState, HistoryEntryReplacement, LoadData, ScriptMsg,
@@ -1889,11 +1888,9 @@ impl Window {
             animations: document.animations().sets.clone(),
         };
 
-        let _ = self.with_layout(Box::new(
-            move |layout: &mut dyn Layout| {
-                layout.process(Msg::Reflow(reflow))
-            }
-        ));
+        let _ = self.with_layout(Box::new(move |layout: &mut dyn Layout| {
+            layout.process(Msg::Reflow(reflow))
+        }));
 
         let complete = match join_port.try_recv() {
             Err(TryRecvError::Empty) => {
@@ -2048,7 +2045,8 @@ impl Window {
     }
 
     pub fn layout_rpc(&self) -> Box<dyn LayoutRPC> {
-        self.with_layout(Box::new(|layout: &mut dyn Layout| layout.rpc())).unwrap()
+        self.with_layout(Box::new(|layout: &mut dyn Layout| layout.rpc()))
+            .unwrap()
     }
 
     pub fn content_box_query(&self, node: &Node) -> Option<UntypedRect<Au>> {
@@ -2288,7 +2286,10 @@ impl Window {
         self.Document().url()
     }
 
-    pub fn with_layout<'a, T>(&self, call: Box<dyn FnOnce(&mut dyn Layout) -> T + 'a>) -> Result<T, ()> {
+    pub fn with_layout<'a, T>(
+        &self,
+        call: Box<dyn FnOnce(&mut dyn Layout) -> T + 'a>,
+    ) -> Result<T, ()> {
         ScriptThread::with_layout(self.pipeline_id(), call)
     }
 

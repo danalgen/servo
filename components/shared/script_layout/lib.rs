@@ -12,9 +12,10 @@ pub mod message;
 pub mod rpc;
 pub mod wrapper_traits;
 
+use std::any::Any;
 use std::borrow::Cow;
-use std::{any::Any, sync::Arc};
 use std::sync::atomic::AtomicIsize;
+use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
 use canvas_traits::canvas::{CanvasId, CanvasMsg};
@@ -26,7 +27,10 @@ use metrics::PaintTimeMetrics;
 use msg::constellation_msg::{PipelineId, TopLevelBrowsingContextId};
 use net_traits::image_cache::{ImageCache, PendingImageId};
 use profile_traits::{mem, time};
-use script_traits::{ConstellationControlMsg, InitialScriptState, LayoutControlMsg, LayoutMsg, LoadData, UntrustedNodeAddress, WebrenderIpcSender, WindowSizeData};
+use script_traits::{
+    ConstellationControlMsg, InitialScriptState, LayoutControlMsg, LayoutMsg, LoadData,
+    UntrustedNodeAddress, WebrenderIpcSender, WindowSizeData,
+};
 use servo_url::{ImmutableOrigin, ServoUrl};
 use style::data::ElementData;
 use webrender_api::ImageKey;

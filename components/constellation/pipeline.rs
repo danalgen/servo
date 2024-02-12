@@ -18,7 +18,6 @@ use gfx::font_cache_thread::FontCacheThread;
 use ipc_channel::ipc::{self, IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
 use ipc_channel::Error;
-use script_layout_interface::{LayoutFactory, ScriptThreadFactory};
 use log::{debug, error, warn};
 use media::WindowGLContext;
 use msg::constellation_msg::{
@@ -30,6 +29,7 @@ use net::image_cache::ImageCacheImpl;
 use net_traits::image_cache::ImageCache;
 use net_traits::ResourceThreads;
 use profile_traits::{mem as profile_mem, time};
+use script_layout_interface::{LayoutFactory, ScriptThreadFactory};
 use script_traits::{
     AnimationState, ConstellationControlMsg, DiscardBrowsingContext, DocumentActivity,
     InitialScriptState, LayoutMsg, LoadData, NewLayoutInfo, SWManagerMsg,
@@ -209,7 +209,10 @@ pub struct NewPipeline {
 impl Pipeline {
     /// Starts a layout thread, and possibly a script thread, in
     /// a new process if requested.
-    pub fn spawn<STF: ScriptThreadFactory>(state: InitialPipelineState, layout_factory: Arc<dyn LayoutFactory>) -> Result<NewPipeline, Error> {
+    pub fn spawn<STF: ScriptThreadFactory>(
+        state: InitialPipelineState,
+        layout_factory: Arc<dyn LayoutFactory>,
+    ) -> Result<NewPipeline, Error> {
         // Note: we allow channel creation to panic, since recovering from this
         // probably requires a general low-memory strategy.
         let (script_chan, bhm_control_chan) = match state.event_loop {

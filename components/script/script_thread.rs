@@ -54,7 +54,7 @@ use js::jsapi::{
 use js::jsval::UndefinedValue;
 use js::rust::ParentRuntime;
 use media::WindowGLContext;
-use metrics::{PaintTimeMetrics, ProgressiveWebMetric, MAX_TASK_NS};
+use metrics::{PaintTimeMetrics, MAX_TASK_NS};
 use mime::{self, Mime};
 use msg::constellation_msg::{
     BackgroundHangMonitor, BackgroundHangMonitorExitSignal, BackgroundHangMonitorRegister,
@@ -73,15 +73,21 @@ use parking_lot::Mutex;
 use percent_encoding::percent_decode;
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};
 use profile_traits::time::{self as profile_time, profile, ProfilerCategory};
-use script_layout_interface::{Layout, LayoutFactory, LayoutConfig, ScriptThreadFactory};
 use script_layout_interface::message::{Msg, ReflowGoal};
+use script_layout_interface::{Layout, LayoutConfig, LayoutFactory, ScriptThreadFactory};
 use script_traits::webdriver_msg::WebDriverScriptCommand;
 use script_traits::CompositorEvent::{
     CompositionEvent, IMEDismissedEvent, KeyboardEvent, MouseButtonEvent, MouseMoveEvent,
     ResizeEvent, TouchEvent, WheelEvent,
 };
 use script_traits::{
-    AnimationTickType, CompositorEvent, ConstellationControlMsg, DiscardBrowsingContext, DocumentActivity, EventResult, HistoryEntryReplacement, InitialScriptState, JsEvalResult, LayoutControlMsg, LayoutMsg, LoadData, LoadOrigin, MediaSessionActionType, MouseButton, MouseEventType, NewLayoutInfo, Painter, ProgressiveWebMetricType, ScriptMsg, ScriptToConstellationChan, StructuredSerializedData, TimerSchedulerMsg, TouchEventType, TouchId, UntrustedNodeAddress, UpdatePipelineIdReason, WebrenderIpcSender, WheelDelta, WindowSizeData, WindowSizeType
+    AnimationTickType, CompositorEvent, ConstellationControlMsg, DiscardBrowsingContext,
+    DocumentActivity, EventResult, HistoryEntryReplacement, InitialScriptState, JsEvalResult,
+    LayoutControlMsg, LayoutMsg, LoadData, LoadOrigin, MediaSessionActionType, MouseButton,
+    MouseEventType, NewLayoutInfo, Painter, ProgressiveWebMetricType, ScriptMsg,
+    ScriptToConstellationChan, StructuredSerializedData, TimerSchedulerMsg, TouchEventType,
+    TouchId, UntrustedNodeAddress, UpdatePipelineIdReason, WebrenderIpcSender, WheelDelta,
+    WindowSizeData, WindowSizeType,
 };
 use servo_atoms::Atom;
 use servo_config::opts;
@@ -807,8 +813,14 @@ impl ScriptThreadFactory for ScriptThread {
                 let mem_profiler_chan = state.mem_profiler_chan.clone();
                 let window_size = state.window_size;
 
-                let script_thread =
-                    ScriptThread::new(state, script_port, script_chan.clone(), layout_factory, font_cache_thread, user_agent);
+                let script_thread = ScriptThread::new(
+                    state,
+                    script_port,
+                    script_chan.clone(),
+                    layout_factory,
+                    font_cache_thread,
+                    user_agent,
+                );
 
                 SCRIPT_THREAD_ROOT.with(|root| {
                     root.set(Some(&script_thread as *const _));
@@ -2085,28 +2097,24 @@ impl ScriptThread {
             },
             ConstellationControlMsg::ForLayoutFromConstellation(msg, pipeline_id) => {
                 self.handle_layout_message(msg, pipeline_id)
-            }
+            },
             ConstellationControlMsg::ForLayoutFromFontCache(pipeline_id) => {
                 self.handle_font_cache(pipeline_id)
-            }
+            },
         }
     }
 
     fn handle_layout_message(&self, msg: LayoutControlMsg, pipeline_id: PipelineId) {
         let _ = Self::with_layout(
             pipeline_id,
-            Box::new(|layout: &mut dyn Layout| {
-                layout.handle_constellation_msg(msg)
-            })
+            Box::new(|layout: &mut dyn Layout| layout.handle_constellation_msg(msg)),
         );
     }
 
     fn handle_font_cache(&self, pipeline_id: PipelineId) {
         let _ = Self::with_layout(
             pipeline_id,
-            Box::new(|layout: &mut dyn Layout| {
-                layout.handle_font_cache_msg()
-            })
+            Box::new(|layout: &mut dyn Layout| layout.handle_font_cache_msg()),
         );
     }
 
@@ -2912,9 +2920,11 @@ impl ScriptThread {
             }
 
             println!("{id}: Shutting down layout");
-            let _ = document.window().with_layout(Box::new(|layout: &mut dyn Layout| {
-                layout.process(Msg::ExitNow);
-            }));
+            let _ = document
+                .window()
+                .with_layout(Box::new(|layout: &mut dyn Layout| {
+                    layout.process(Msg::ExitNow);
+                }));
 
             debug!("{id}: Sending PipelineExited message to constellation");
             self.script_sender
@@ -3241,7 +3251,7 @@ impl ScriptThread {
             self.websocket_task_source(incomplete.pipeline_id),
         );
 
-        let mut paint_time_metrics = PaintTimeMetrics::new(
+        let paint_time_metrics = PaintTimeMetrics::new(
             incomplete.pipeline_id,
             self.time_profiler_chan.clone(),
             self.layout_to_constellation_chan.clone(),
@@ -3267,7 +3277,8 @@ impl ScriptThread {
         };
         self.layouts.borrow_mut().insert(
             incomplete.pipeline_id,
-                self.layout_factory.create(layout_config));
+            self.layout_factory.create(layout_config),
+        );
 
         // Create the window and document objects.
         let window = Window::new(

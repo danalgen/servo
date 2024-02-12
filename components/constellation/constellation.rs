@@ -124,7 +124,6 @@ use ipc_channel::router::ROUTER;
 use ipc_channel::Error as IpcError;
 use keyboard_types::webdriver::Event as WebDriverInputEvent;
 use keyboard_types::KeyboardEvent;
-use script_layout_interface::{LayoutFactory, ScriptThreadFactory};
 use log::{debug, error, info, trace, warn};
 use media::{GLPlayerThreads, WindowGLContext};
 use msg::constellation_msg::{
@@ -138,6 +137,7 @@ use net_traits::request::{Referrer, RequestBuilder};
 use net_traits::storage_thread::{StorageThreadMsg, StorageType};
 use net_traits::{self, FetchResponseMsg, IpcSend, ResourceThreads};
 use profile_traits::{mem, time};
+use script_layout_interface::{LayoutFactory, ScriptThreadFactory};
 use script_traits::CompositorEvent::{MouseButtonEvent, MouseMoveEvent};
 use script_traits::{
     webdriver_msg, AnimationState, AnimationTickType, AuxiliaryBrowsingContextLoadInfo,
@@ -146,9 +146,9 @@ use script_traits::{
     IFrameLoadInfoWithData, IFrameSandboxState, IFrameSizeMsg, Job, LayoutControlMsg,
     LayoutMsg as FromLayoutMsg, LoadData, LoadOrigin, LogEntry, MediaSessionActionType,
     MessagePortMsg, MouseEventType, PortMessageTask, SWManagerMsg, SWManagerSenders,
-    ScriptMsg as FromScriptMsg, ScriptToConstellationChan,
-    ServiceWorkerManagerFactory, ServiceWorkerMsg, StructuredSerializedData, TimerSchedulerMsg,
-    UpdatePipelineIdReason, WebDriverCommandMsg, WindowSizeData, WindowSizeType,
+    ScriptMsg as FromScriptMsg, ScriptToConstellationChan, ServiceWorkerManagerFactory,
+    ServiceWorkerMsg, StructuredSerializedData, TimerSchedulerMsg, UpdatePipelineIdReason,
+    WebDriverCommandMsg, WindowSizeData, WindowSizeType,
 };
 use serde::{Deserialize, Serialize};
 use servo_config::{opts, pref};
@@ -1026,52 +1026,53 @@ where
             self.public_resource_threads.clone()
         };
 
-        let result = Pipeline::spawn::<STF>(InitialPipelineState {
-            id: pipeline_id,
-            browsing_context_id,
-            top_level_browsing_context_id,
-            parent_pipeline_id,
-            opener,
-            script_to_constellation_chan: ScriptToConstellationChan {
-                sender: self.script_sender.clone(),
-                pipeline_id: pipeline_id,
+        let result = Pipeline::spawn::<STF>(
+            InitialPipelineState {
+                id: pipeline_id,
+                browsing_context_id,
+                top_level_browsing_context_id,
+                parent_pipeline_id,
+                opener,
+                script_to_constellation_chan: ScriptToConstellationChan {
+                    sender: self.script_sender.clone(),
+                    pipeline_id: pipeline_id,
+                },
+                namespace_request_sender: self.namespace_ipc_sender.clone(),
+                pipeline_namespace_id: self.next_pipeline_namespace_id(),
+                background_monitor_register: self.background_monitor_register.clone(),
+                background_hang_monitor_to_constellation_chan: self
+                    .background_hang_monitor_sender
+                    .clone(),
+                layout_to_constellation_chan: self.layout_sender.clone(),
+                scheduler_chan: self.scheduler_ipc_sender.clone(),
+                compositor_proxy: self.compositor_proxy.clone(),
+                devtools_sender: self.devtools_sender.clone(),
+                bluetooth_thread: self.bluetooth_ipc_sender.clone(),
+                swmanager_thread: self.swmanager_ipc_sender.clone(),
+                font_cache_thread: self.font_cache_thread.clone(),
+                resource_threads,
+                time_profiler_chan: self.time_profiler_chan.clone(),
+                mem_profiler_chan: self.mem_profiler_chan.clone(),
+                window_size: WindowSizeData {
+                    initial_viewport: initial_window_size,
+                    device_pixel_ratio: self.window_size.device_pixel_ratio,
+                },
+                event_loop,
+                load_data,
+                prev_visibility: is_visible,
+                webrender_api_sender: self.webrender_api_ipc_sender.clone(),
+                webrender_image_api_sender: self.webrender_image_api_sender.clone(),
+                webrender_document: self.webrender_document,
+                webgl_chan: self
+                    .webgl_threads
+                    .as_ref()
+                    .map(|threads| threads.pipeline()),
+                webxr_registry: self.webxr_registry.clone(),
+                player_context: self.player_context.clone(),
+                event_loop_waker: None,
+                user_agent: self.user_agent.clone(),
             },
-            namespace_request_sender: self.namespace_ipc_sender.clone(),
-            pipeline_namespace_id: self.next_pipeline_namespace_id(),
-            background_monitor_register: self.background_monitor_register.clone(),
-            background_hang_monitor_to_constellation_chan: self
-                .background_hang_monitor_sender
-                .clone(),
-            layout_to_constellation_chan: self.layout_sender.clone(),
-            scheduler_chan: self.scheduler_ipc_sender.clone(),
-            compositor_proxy: self.compositor_proxy.clone(),
-            devtools_sender: self.devtools_sender.clone(),
-            bluetooth_thread: self.bluetooth_ipc_sender.clone(),
-            swmanager_thread: self.swmanager_ipc_sender.clone(),
-            font_cache_thread: self.font_cache_thread.clone(),
-            resource_threads,
-            time_profiler_chan: self.time_profiler_chan.clone(),
-            mem_profiler_chan: self.mem_profiler_chan.clone(),
-            window_size: WindowSizeData {
-                initial_viewport: initial_window_size,
-                device_pixel_ratio: self.window_size.device_pixel_ratio,
-            },
-            event_loop,
-            load_data,
-            prev_visibility: is_visible,
-            webrender_api_sender: self.webrender_api_ipc_sender.clone(),
-            webrender_image_api_sender: self.webrender_image_api_sender.clone(),
-            webrender_document: self.webrender_document,
-            webgl_chan: self
-                .webgl_threads
-                .as_ref()
-                .map(|threads| threads.pipeline()),
-            webxr_registry: self.webxr_registry.clone(),
-            player_context: self.player_context.clone(),
-            event_loop_waker: None,
-            user_agent: self.user_agent.clone(),
-        },
-        self.layout_factory.clone(),
+            self.layout_factory.clone(),
         );
 
         let pipeline = match result {
@@ -1660,7 +1661,7 @@ where
             FromScriptMsg::ScriptNewIFrame(load_info) => {
                 self.handle_script_new_iframe(load_info);
             },
-            FromScriptMsg::ScriptNewAuxiliary(load_info ) => {
+            FromScriptMsg::ScriptNewAuxiliary(load_info) => {
                 self.handle_script_new_auxiliary(load_info);
             },
             FromScriptMsg::ChangeRunningAnimationsState(animation_state) => {
@@ -3242,10 +3243,7 @@ where
         });
     }
 
-    fn handle_script_new_iframe(
-        &mut self,
-        load_info: IFrameLoadInfoWithData,
-    ) {
+    fn handle_script_new_iframe(&mut self, load_info: IFrameLoadInfoWithData) {
         let IFrameLoadInfo {
             parent_pipeline_id,
             new_pipeline_id,
@@ -3305,10 +3303,7 @@ where
         });
     }
 
-    fn handle_script_new_auxiliary(
-        &mut self,
-        load_info: AuxiliaryBrowsingContextLoadInfo,
-    ) {
+    fn handle_script_new_auxiliary(&mut self, load_info: AuxiliaryBrowsingContextLoadInfo) {
         let AuxiliaryBrowsingContextLoadInfo {
             load_data,
             opener_pipeline_id,
@@ -4997,7 +4992,9 @@ where
             // there's a race condition where a webfont has finished loading,
             // but hasn't yet notified the document.
             let msg = ConstellationControlMsg::ForLayoutFromConstellation(
-                LayoutControlMsg::GetWebFontLoadState(state_sender.clone()), pipeline.id);
+                LayoutControlMsg::GetWebFontLoadState(state_sender.clone()),
+                pipeline.id,
+            );
             if let Err(e) = pipeline.event_loop.send(msg) {
                 warn!("Get web font failed ({})", e);
             }
@@ -5032,7 +5029,9 @@ where
                     // (and script is idle) then this pipeline won't change again
                     // and can be considered stable.
                     let message = ConstellationControlMsg::ForLayoutFromConstellation(
-                        LayoutControlMsg::GetCurrentEpoch(epoch_ipc_sender.clone()), pipeline_id);
+                        LayoutControlMsg::GetCurrentEpoch(epoch_ipc_sender.clone()),
+                        pipeline_id,
+                    );
                     if let Err(e) = pipeline.event_loop.send(message) {
                         warn!("Failed to send GetCurrentEpoch ({}).", e);
                     }

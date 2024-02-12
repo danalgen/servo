@@ -12,9 +12,9 @@ use std::borrow::ToOwned;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::process;
 
 use app_units::Au;
 use embedder_traits::resources::{self, Resource};
@@ -49,7 +49,6 @@ use layout::traversal::{
 };
 use layout::wrapper::LayoutNodeLayoutData;
 use layout::{layout_debug, layout_debug_scope, parallel, sequential, LayoutData};
-use script_layout_interface::{Layout, LayoutConfig, LayoutChildConfig, LayoutFactory};
 use lazy_static::lazy_static;
 use log::{debug, error, trace, warn};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
@@ -64,11 +63,11 @@ use profile_traits::time::{
 };
 use script::layout_dom::{ServoLayoutDocument, ServoLayoutElement, ServoLayoutNode};
 use script_layout_interface::message::{
-    Msg, NodesFromPointQueryType, QueryMsg, Reflow, ReflowComplete, ReflowGoal,
-    ScriptReflow,
+    Msg, NodesFromPointQueryType, QueryMsg, Reflow, ReflowComplete, ReflowGoal, ScriptReflow,
 };
 use script_layout_interface::rpc::{LayoutRPC, OffsetParentResponse, TextIndexResponse};
 use script_layout_interface::wrapper_traits::LayoutNode;
+use script_layout_interface::{Layout, LayoutChildConfig, LayoutConfig, LayoutFactory};
 use script_traits::{
     ConstellationControlMsg, DrawAPaintImageResult, IFrameSizeMsg, LayoutControlMsg,
     LayoutMsg as ConstellationMsg, PaintWorkletError, Painter, ScrollState, UntrustedNodeAddress,
@@ -413,10 +412,9 @@ impl LayoutThread {
         ROUTER.add_route(
             ipc_font_cache_receiver.to_opaque(),
             Box::new(move |_message| {
-                let _ = cloned_script_chan.send(
-                    ConstellationControlMsg::ForLayoutFromFontCache(id)
-                );
-            })
+                let _ =
+                    cloned_script_chan.send(ConstellationControlMsg::ForLayoutFromFontCache(id));
+            }),
         );
 
         LayoutThread {
@@ -516,16 +514,15 @@ impl LayoutThread {
         };
 
         match request {
-            Request::FromPipeline(LayoutControlMsg::SetScrollStates(new_scroll_states)) => self
-                .handle_request_helper(
-                    Msg::SetScrollStates(new_scroll_states),
-                    &mut rw_data,
-                ),
+            Request::FromPipeline(LayoutControlMsg::SetScrollStates(new_scroll_states)) => {
+                self.handle_request_helper(Msg::SetScrollStates(new_scroll_states), &mut rw_data)
+            },
             Request::FromPipeline(LayoutControlMsg::GetCurrentEpoch(sender)) => {
                 self.handle_request_helper(Msg::GetCurrentEpoch(sender), &mut rw_data);
             },
-            Request::FromPipeline(LayoutControlMsg::GetWebFontLoadState(sender)) => self
-                .handle_request_helper(Msg::GetWebFontLoadState(sender), &mut rw_data),
+            Request::FromPipeline(LayoutControlMsg::GetWebFontLoadState(sender)) => {
+                self.handle_request_helper(Msg::GetWebFontLoadState(sender), &mut rw_data)
+            },
             Request::FromPipeline(LayoutControlMsg::ExitNow) => {
                 self.handle_request_helper(Msg::ExitNow, &mut rw_data);
             },

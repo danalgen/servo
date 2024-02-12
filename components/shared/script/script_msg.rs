@@ -29,8 +29,8 @@ use webrender_api::units::{DeviceIntPoint, DeviceIntSize};
 
 use crate::{
     AnimationState, AuxiliaryBrowsingContextLoadInfo, BroadcastMsg, DocumentState,
-    IFrameLoadInfoWithData, LoadData, MessagePortMsg, PortMessageTask,
-    StructuredSerializedData, WindowSizeType, WorkerGlobalScopeInit, WorkerScriptLoadOrigin,
+    IFrameLoadInfoWithData, LoadData, MessagePortMsg, PortMessageTask, StructuredSerializedData,
+    WindowSizeType, WorkerGlobalScopeInit, WorkerScriptLoadOrigin,
 };
 
 /// An iframe sizing operation.

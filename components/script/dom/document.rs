@@ -30,7 +30,6 @@ use js::jsapi::JSObject;
 use js::rust::HandleObject;
 use keyboard_types::{Code, Key, KeyState};
 use lazy_static::lazy_static;
-use script_layout_interface::Layout;
 use metrics::{
     InteractiveFlag, InteractiveMetrics, InteractiveWindow, ProfilerMetadataFactory,
     ProgressiveWebMetric,
@@ -48,7 +47,7 @@ use percent_encoding::percent_decode;
 use profile_traits::ipc as profile_ipc;
 use profile_traits::time::{TimerMetadata, TimerMetadataFrameType, TimerMetadataReflowType};
 use script_layout_interface::message::{Msg, PendingRestyle, ReflowGoal};
-use script_layout_interface::TrustedNodeAddress;
+use script_layout_interface::{Layout, TrustedNodeAddress};
 use script_traits::{
     AnimationState, DocumentActivity, MouseButton, MouseEventType, MsDuration, ScriptMsg,
     TouchEventType, TouchId, UntrustedNodeAddress, WheelDelta,
@@ -828,9 +827,11 @@ impl Document {
         let old_mode = self.quirks_mode.replace(new_mode);
 
         if old_mode != new_mode {
-            let _ = self.window.with_layout(Box::new(move |layout: &mut dyn Layout| {
-                layout.process(Msg::SetQuirksMode(new_mode))
-            }));
+            let _ = self
+                .window
+                .with_layout(Box::new(move |layout: &mut dyn Layout| {
+                    layout.process(Msg::SetQuirksMode(new_mode))
+                }));
         }
     }
 
@@ -3832,12 +3833,14 @@ impl Document {
 
         let cloned_stylesheet = sheet.clone();
         let insertion_point2 = insertion_point.clone();
-        let _ = self.window.with_layout(Box::new(move |layout: &mut dyn Layout| {
-            layout.process(Msg::AddStylesheet(
-                cloned_stylesheet,
-                insertion_point2.as_ref().map(|s| s.sheet.clone()),
-            ))
-        }));
+        let _ = self
+            .window
+            .with_layout(Box::new(move |layout: &mut dyn Layout| {
+                layout.process(Msg::AddStylesheet(
+                    cloned_stylesheet,
+                    insertion_point2.as_ref().map(|s| s.sheet.clone()),
+                ))
+            }));
 
         DocumentOrShadowRoot::add_stylesheet(
             owner,
