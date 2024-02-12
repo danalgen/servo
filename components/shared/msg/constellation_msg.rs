@@ -610,7 +610,6 @@ impl fmt::Debug for HangProfile {
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum MonitoredComponentType {
-    Layout,
     Script,
 }
 

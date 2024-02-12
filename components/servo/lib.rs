@@ -66,7 +66,7 @@ pub use gfx::rendering_context;
 use gfx::rendering_context::RenderingContext;
 pub use gleam::gl;
 use ipc_channel::ipc::{self, IpcSender};
-use layout_traits::LayoutFactory;
+use script_layout_interface::LayoutFactory;
 use log::{error, trace, warn, Log, Metadata, Record};
 use media::{GLPlayerThreads, GlApi, NativeDisplay, WindowGLContext};
 pub use msg::constellation_msg::TopLevelBrowsingContextId;

@@ -35,7 +35,7 @@ use js::rust::wrappers::JS_DefineProperty;
 use js::rust::{
     CustomAutoRooter, CustomAutoRooterGuard, HandleObject, HandleValue, MutableHandleObject,
 };
-use layout_traits::Layout;
+use script_layout_interface::Layout;
 use malloc_size_of::MallocSizeOf;
 use media::WindowGLContext;
 use msg::constellation_msg::{BrowsingContextId, PipelineId};
@@ -326,10 +326,6 @@ pub struct Window {
     /// Indicate whether a SetDocumentStatus message has been sent after a reflow is complete.
     /// It is used to avoid sending idle message more than once, which is unneccessary.
     has_sent_idle_message: Cell<bool>,
-
-    /// Flag that indicates if the layout thread is busy handling a request.
-    #[ignore_malloc_size_of = "Arc<T> is hard"]
-    layout_is_busy: Arc<AtomicBool>,
 
     /// Emits notifications when there is a relayout.
     relayout_event: bool,
@@ -2033,12 +2029,6 @@ impl Window {
     }
 
     pub fn layout_reflow(&self, query_msg: QueryMsg) -> bool {
-        if self.layout_is_busy.load(Ordering::Relaxed) {
-            let url = self.get_url().into_string();
-            self.time_profiler_chan()
-                .send(ProfilerMsg::BlockedLayoutQuery(url));
-        }
-
         self.reflow(
             ReflowGoal::LayoutQuery(query_msg, time::precise_time_ns()),
             ReflowReason::Query,
@@ -2532,7 +2522,6 @@ impl Window {
         microtask_queue: Rc<MicrotaskQueue>,
         webrender_document: DocumentId,
         webrender_api_sender: WebrenderIpcSender,
-        layout_is_busy: Arc<AtomicBool>,
         relayout_event: bool,
         prepare_for_screenshot: bool,
         unminify_js: bool,
@@ -2613,7 +2602,6 @@ impl Window {
             exists_mut_observer: Cell::new(false),
             webrender_api_sender,
             has_sent_idle_message: Cell::new(false),
-            layout_is_busy,
             relayout_event,
             prepare_for_screenshot,
             unminify_js,

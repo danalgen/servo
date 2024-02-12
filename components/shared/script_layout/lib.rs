@@ -12,32 +12,25 @@ pub mod message;
 pub mod rpc;
 pub mod wrapper_traits;
 
-use std::any::Any;
+use std::borrow::Cow;
+use std::{any::Any, sync::Arc};
 use std::sync::atomic::AtomicIsize;
 
 use atomic_refcell::AtomicRefCell;
 use canvas_traits::canvas::{CanvasId, CanvasMsg};
 use crossbeam_channel::{Receiver, Sender};
 use gfx::font_cache_thread::FontCacheThread;
-use ipc_channel::ipc::{IpcReceiver, IpcSender};
+use ipc_channel::ipc::IpcSender;
 use libc::c_void;
 use malloc_size_of_derive::MallocSizeOf;
 use metrics::PaintTimeMetrics;
-use msg::constellation_msg::BackgroundHangMonitorRegister;
 use msg::constellation_msg::{PipelineId, TopLevelBrowsingContextId};
-use net_traits::image_cache::ImageCache;
-use net_traits::image_cache::PendingImageId;
+use net_traits::image_cache::{ImageCache, PendingImageId};
 use profile_traits::{mem, time};
-use script_traits::UntrustedNodeAddress;
+use script_traits::{ConstellationControlMsg, InitialScriptState, LayoutControlMsg, LayoutMsg, LoadData, UntrustedNodeAddress, WebrenderIpcSender, WindowSizeData};
 use servo_url::{ImmutableOrigin, ServoUrl};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use style::data::ElementData;
 use webrender_api::ImageKey;
-use script_traits::{
-    ConstellationControlMsg, LayoutControlMsg, LayoutMsg as ConstellationMsg, WebrenderIpcSender,
-    WindowSizeData,
-};
 
 #[derive(MallocSizeOf)]
 pub struct StyleData {
@@ -174,4 +167,59 @@ pub struct PendingImage {
 
 pub struct HTMLMediaData {
     pub current_frame: Option<(ImageKey, i32, i32)>,
+}
+
+pub struct LayoutConfig {
+    pub id: PipelineId,
+    pub top_level_browsing_context_id: TopLevelBrowsingContextId,
+    pub url: ServoUrl,
+    pub is_iframe: bool,
+    pub constellation_chan: IpcSender<LayoutMsg>,
+    pub script_chan: IpcSender<ConstellationControlMsg>,
+    pub image_cache: Arc<dyn ImageCache>,
+    pub font_cache_thread: FontCacheThread,
+    pub time_profiler_chan: time::ProfilerChan,
+    pub mem_profiler_chan: mem::ProfilerChan,
+    pub webrender_api_sender: WebrenderIpcSender,
+    pub paint_time_metrics: PaintTimeMetrics,
+    pub window_size: WindowSizeData,
+}
+
+/// The initial data required to create a new layout attached to an existing script thread.
+pub struct LayoutChildConfig {
+    pub id: PipelineId,
+    pub url: ServoUrl,
+    pub is_parent: bool,
+    pub constellation_chan: IpcSender<LayoutMsg>,
+    pub script_chan: IpcSender<ConstellationControlMsg>,
+    pub image_cache: Arc<dyn ImageCache>,
+    pub paint_time_metrics: PaintTimeMetrics,
+    pub window_size: WindowSizeData,
+}
+
+pub trait LayoutFactory: Send + Sync {
+    fn create(&self, config: LayoutConfig) -> Box<dyn Layout>;
+}
+
+pub trait Layout {
+    fn process(&mut self, msg: message::Msg);
+    fn handle_constellation_msg(&mut self, msg: script_traits::LayoutControlMsg);
+    fn handle_font_cache_msg(&mut self);
+    fn create_new_layout(&self, init: LayoutChildConfig) -> Box<dyn Layout>;
+    fn rpc(&self) -> Box<dyn rpc::LayoutRPC>;
+}
+
+/// This trait allows creating a `ScriptThread` without depending on the `script`
+/// crate.
+pub trait ScriptThreadFactory {
+    /// Type of message sent from script to layout.
+    type Message;
+    /// Create a `ScriptThread`.
+    fn create(
+        state: InitialScriptState,
+        layout_factory: Arc<dyn LayoutFactory>,
+        font_cache_thread: FontCacheThread,
+        load_data: LoadData,
+        user_agent: Cow<'static, str>,
+    ) -> (Sender<Self::Message>, Receiver<Self::Message>);
 }

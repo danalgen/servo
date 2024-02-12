@@ -52,7 +52,6 @@ gleam = { workspace = true }
 gstreamer = { workspace = true, optional = true }
 ipc-channel = { workspace = true }
 keyboard-types = { workspace = true }
-layout_traits = { workspace = true }
 layout_thread_2013 = { path = "../layout_thread" }
 layout_thread_2020 = { path = "../layout_thread_2020" }
 log = { workspace = true }

@@ -49,7 +49,7 @@ use layout::traversal::{
 };
 use layout::wrapper::LayoutNodeLayoutData;
 use layout::{layout_debug, layout_debug_scope, parallel, sequential, LayoutData};
-use layout_traits::{Layout, LayoutConfig, LayoutChildConfig, LayoutFactory};
+use script_layout_interface::{Layout, LayoutConfig, LayoutChildConfig, LayoutFactory};
 use lazy_static::lazy_static;
 use log::{debug, error, trace, warn};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
@@ -191,9 +191,6 @@ pub struct LayoutThread {
     /// The sizes of all iframes encountered during the last layout operation.
     last_iframe_sizes: RefCell<FnvHashMap<BrowsingContextId, Size2D<f32, CSSPixel>>>,
 
-    /// Flag that indicates if LayoutThread is busy handling a request.
-    busy: Arc<AtomicBool>,
-
     /// Debug options, copied from configuration to this `LayoutThread` in order
     /// to avoid having to constantly access the thread-safe global options.
     debug: DebugOptions,
@@ -219,7 +216,6 @@ impl LayoutFactory for LayoutFactoryImpl {
             config.mem_profiler_chan.clone(),
             config.webrender_api_sender,
             config.paint_time_metrics,
-            config.busy,
             config.window_size,
         ))
     }
@@ -375,7 +371,6 @@ impl Layout for LayoutThread {
             mem_profiler_chan: self.mem_profiler_chan.clone(),
             webrender_api_sender: self.webrender_api.clone(),
             paint_time_metrics: child_config.paint_time_metrics,
-            busy: child_config.layout_is_busy,
             window_size: child_config.window_size,
         };
         LayoutFactoryImpl().create(config)
@@ -405,7 +400,6 @@ impl LayoutThread {
         mem_profiler_chan: profile_mem::ProfilerChan,
         webrender_api: WebrenderIpcSender,
         paint_time_metrics: PaintTimeMetrics,
-        busy: Arc<AtomicBool>,
         window_size: WindowSizeData,
     ) -> LayoutThread {
         // Let webrender know about this pipeline by sending an empty display list.
@@ -475,7 +469,6 @@ impl LayoutThread {
             paint_time_metrics,
             layout_query_waiting_time: Histogram::new(),
             last_iframe_sizes: Default::default(),
-            busy,
             debug: opts::get().debug.clone(),
             nonincremental_layout: opts::get().nonincremental_layout,
         }
@@ -527,7 +520,6 @@ impl LayoutThread {
             possibly_locked_rw_data: &mut possibly_locked_rw_data,
         };
 
-        self.busy.store(true, Ordering::Relaxed);
         match request {
             Request::FromPipeline(LayoutControlMsg::SetScrollStates(new_scroll_states)) => self
                 .handle_request_helper(
@@ -555,7 +547,6 @@ impl LayoutThread {
                     .unwrap();
             },
         };
-        self.busy.store(false, Ordering::Relaxed);
     }
 
     /// Receives and dispatches messages from other threads.

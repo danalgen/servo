@@ -18,7 +18,7 @@ use gfx::font_cache_thread::FontCacheThread;
 use ipc_channel::ipc::{self, IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
 use ipc_channel::Error;
-use layout_traits::{Layout, LayoutFactory, ScriptThreadFactory};
+use script_layout_interface::{Layout, LayoutFactory, ScriptThreadFactory};
 use log::{debug, error, warn};
 use media::WindowGLContext;
 use msg::constellation_msg::{

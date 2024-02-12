@@ -124,7 +124,7 @@ use ipc_channel::router::ROUTER;
 use ipc_channel::Error as IpcError;
 use keyboard_types::webdriver::Event as WebDriverInputEvent;
 use keyboard_types::KeyboardEvent;
-use layout_traits::{LayoutFactory, ScriptThreadFactory};
+use script_layout_interface::{LayoutFactory, ScriptThreadFactory};
 use log::{debug, error, info, trace, warn};
 use media::{GLPlayerThreads, WindowGLContext};
 use msg::constellation_msg::{
@@ -2565,6 +2565,8 @@ where
     }
 
     fn handle_exit(&mut self) {
+        debug!("Handling exit.");
+
         // TODO: add a timer, which forces shutdown if threads aren't responsive.
         if self.shutting_down {
             return;
@@ -2643,6 +2645,8 @@ where
     }
 
     fn handle_shutdown(&mut self) {
+        debug!("Handling shutdown.");
+
         // At this point, there are no active pipelines,
         // so we can safely block on other threads, without worrying about deadlock.
         // Channels to receive signals when threads are done exiting.

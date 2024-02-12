@@ -886,7 +886,6 @@ dependencies = [
  "http",
  "ipc-channel",
  "keyboard-types",
- "layout_traits",
  "log",
  "media",
  "metrics",
@@ -3086,7 +3085,6 @@ dependencies = [
  "histogram",
  "ipc-channel",
  "layout_2013",
- "layout_traits",
  "lazy_static",
  "log",
  "malloc_size_of",
@@ -3125,7 +3123,6 @@ dependencies = [
  "gfx_traits",
  "ipc-channel",
  "layout_2020",
- "layout_traits",
  "lazy_static",
  "log",
  "malloc_size_of",
@@ -3145,22 +3142,6 @@ dependencies = [
  "style",
  "style_traits",
  "webrender_api",
-]
-
-[[package]]
-name = "layout_traits"
-version = "0.0.1"
-dependencies = [
- "crossbeam-channel",
- "gfx",
- "ipc-channel",
- "metrics",
- "msg",
- "net_traits",
- "profile_traits",
- "script_layout_interface",
- "script_traits",
- "servo_url",
 ]
 
 [[package]]
@@ -3299,7 +3280,6 @@ dependencies = [
  "keyboard-types",
  "layout_thread_2013",
  "layout_thread_2020",
- "layout_traits",
  "log",
  "media",
  "mozangle",
@@ -4846,7 +4826,6 @@ dependencies = [
  "itertools 0.12.1",
  "jstraceable_derive",
  "keyboard-types",
- "layout_traits",
  "lazy_static",
  "libc",
  "log",

@@ -11,13 +11,11 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
-use std::{process, thread};
+use std::process;
 
 use app_units::Au;
-use crossbeam_channel::{select, Receiver, Sender};
 use embedder_traits::resources::{self, Resource};
 use euclid::default::Size2D as UntypedSize2D;
 use euclid::{Point2D, Rect, Scale, Size2D};
@@ -26,7 +24,7 @@ use fxhash::FxHashMap;
 use gfx::font_cache_thread::FontCacheThread;
 use gfx::font_context;
 use gfx_traits::{node_id_from_scroll_id, Epoch};
-use ipc_channel::ipc::{self, IpcReceiver, IpcSender};
+use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
 use layout::context::LayoutContext;
 use layout::display_list::{DisplayList, WebRenderImageInfo};
@@ -39,16 +37,12 @@ use layout::query::{
 };
 use layout::traversal::RecalcStyle;
 use layout::{layout_debug, BoxTree, FragmentTree};
-use layout_traits::{Layout, LayoutChildConfig, LayoutConfig, LayoutFactory};
+use script_layout_interface::{Layout, LayoutChildConfig, LayoutConfig, LayoutFactory};
 use lazy_static::lazy_static;
 use log::{debug, error, warn};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use metrics::{PaintTimeMetrics, ProfilerMetadataFactory, ProgressiveWebMetric};
-use msg::constellation_msg::{
-    BrowsingContextId, HangAnnotation,
-    LayoutHangAnnotation, MonitoredComponentId, MonitoredComponentType, PipelineId,
-    TopLevelBrowsingContextId,
-};
+use msg::constellation_msg::{BrowsingContextId, PipelineId, TopLevelBrowsingContextId};
 use net_traits::image_cache::{ImageCache, UsePlaceholder};
 use parking_lot::RwLock;
 use profile_traits::mem::{self as profile_mem, Report, ReportKind, ReportsChan};
@@ -87,7 +81,6 @@ use style::stylesheets::{
     DocumentStyleSheet, Origin, Stylesheet, StylesheetInDocument, UserAgentStylesheets,
 };
 use style::stylist::Stylist;
-use style::thread_state::{self, ThreadState};
 use style::traversal::DomTraversal;
 use style::traversal_flags::TraversalFlags;
 use style_traits::{CSSPixel, DevicePixel, SpeculativePainter};
@@ -174,9 +167,6 @@ pub struct LayoutThread {
     /// The sizes of all iframes encountered during the last layout operation.
     last_iframe_sizes: RefCell<FnvHashMap<BrowsingContextId, Size2D<f32, CSSPixel>>>,
 
-    /// Flag that indicates if LayoutThread is busy handling a request.
-    busy: Arc<AtomicBool>,
-
     /// Debug options, copied from configuration to this `LayoutThread` in order
     /// to avoid having to constantly access the thread-safe global options.
     debug: DebugOptions,
@@ -199,7 +189,6 @@ impl LayoutFactory for LayoutFactoryImpl {
             config.mem_profiler_chan.clone(),
             config.webrender_api_sender,
             config.paint_time_metrics,
-            config.busy,
             config.window_size,
         ))
     }
@@ -354,7 +343,6 @@ impl Layout for LayoutThread {
             mem_profiler_chan: self.mem_profiler_chan.clone(),
             webrender_api_sender: self.webrender_api.clone(),
             paint_time_metrics: child_config.paint_time_metrics,
-            busy: child_config.layout_is_busy,
             window_size: child_config.window_size,
         };
         LayoutFactoryImpl().create(config)
@@ -385,7 +373,6 @@ impl LayoutThread {
         mem_profiler_chan: profile_mem::ProfilerChan,
         webrender_api_sender: WebrenderIpcSender,
         paint_time_metrics: PaintTimeMetrics,
-        busy: Arc<AtomicBool>,
         window_size: WindowSizeData,
     ) -> LayoutThread {
         // Let webrender know about this pipeline by sending an empty display list.
@@ -454,7 +441,6 @@ impl LayoutThread {
             webrender_image_cache: Default::default(),
             paint_time_metrics: paint_time_metrics,
             last_iframe_sizes: Default::default(),
-            busy,
             debug: opts::get().debug.clone(),
         }
     }
@@ -506,7 +492,6 @@ impl LayoutThread {
             possibly_locked_rw_data: &mut possibly_locked_rw_data,
         };
 
-        self.busy.store(true, Ordering::Relaxed);
         match request {
             Request::FromPipeline(LayoutControlMsg::SetScrollStates(new_scroll_states)) => self
                 .handle_request_helper(
@@ -534,7 +519,6 @@ impl LayoutThread {
                     .unwrap();
             },
         };
-        self.busy.store(false, Ordering::Relaxed);
     }
 
     /// Receives and dispatches messages from other threads.

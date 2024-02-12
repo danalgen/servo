@@ -45,7 +45,7 @@ use gfx::font_cache_thread::FontCacheThread;
 use headers::{HeaderMapExt, LastModified, ReferrerPolicy as ReferrerPolicyHeader};
 use html5ever::{local_name, namespace_url, ns};
 use hyper_serde::Serde;
-use ipc_channel::ipc::{self, IpcReceiver, IpcSender};
+use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::router::ROUTER;
 use js::glue::GetWindowProxyClass;
 use js::jsapi::{
@@ -73,7 +73,7 @@ use parking_lot::Mutex;
 use percent_encoding::percent_decode;
 use profile_traits::mem::{self as profile_mem, OpaqueSender, ReportsChan};
 use profile_traits::time::{self as profile_time, profile, ProfilerCategory};
-use layout_traits::{Layout, LayoutFactory, LayoutConfig, ScriptThreadFactory};
+use script_layout_interface::{Layout, LayoutFactory, LayoutConfig, ScriptThreadFactory};
 use script_layout_interface::message::{self, Msg, ReflowGoal};
 use script_traits::webdriver_msg::WebDriverScriptCommand;
 use script_traits::CompositorEvent::{
@@ -867,7 +867,6 @@ impl ScriptThread {
         SCRIPT_THREAD_ROOT.with(|root| {
             let script_thread = unsafe { &*root.get().unwrap() };
             let mut layouts = script_thread.layouts.borrow_mut();
-            let mut incompletes = script_thread.incomplete_loads.borrow_mut();
             if let Some(ref mut layout) = layouts.get_mut(&pipeline_id) {
                 Ok(call(&mut ***layout))
             } else {
@@ -2911,28 +2910,33 @@ impl ScriptThread {
 
     /// Handles a request to exit a pipeline and shut down layout.
     fn handle_exit_pipeline_msg(&self, id: PipelineId, discard_bc: DiscardBrowsingContext) {
-        println!("Exiting pipeline {}.", id);
+        debug!("{id}: Starting pipeling exit.");
 
         self.closed_pipelines.borrow_mut().insert(id);
 
         // Abort the parser, if any,
         // to prevent any further incoming networking messages from being handled.
-        if let Some(document) = self.documents.borrow_mut().remove(id) {
+        let document = self.documents.borrow_mut().remove(id);
+        if let Some(document) = document {
             if let Some(parser) = document.get_current_parser() {
                 parser.abort();
             }
 
-            println!("Shutting down layout for page ({})", id);
+            println!("{id}: Shutting down layout");
             let _ = document.window().with_layout(Box::new(|layout: &mut dyn Layout| {
                 layout.process(Msg::ExitNow);
             }));
 
+            debug!("{id}: Sending PipelineExited message to constellation");
+            self.script_sender
+                .send((id, ScriptMsg::PipelineExited))
+                .ok();
+
             // Clear any active animations and unroot all of the associated DOM objects.
-            println!("\ta");
+            debug!("{id}: Clearing animations");
             document.animations().clear();
 
             // We don't want to dispatch `mouseout` event pointing to non-existing element
-            println!("\tb");
             if let Some(target) = self.topmost_mouse_over_target.get() {
                 if target.upcast::<Node>().owner_doc() == document {
                     self.topmost_mouse_over_target.set(None);
@@ -2941,17 +2945,16 @@ impl ScriptThread {
 
             // We discard the browsing context after requesting layout shut down,
             // to avoid running layout on detached iframes.
-            println!("\tc");
             let window = document.window();
             if discard_bc == DiscardBrowsingContext::Yes {
                 window.discard_browsing_context();
             }
-            println!("\td");
+
+            debug!("{id}: Clearing JavaScript runtime");
             window.clear_js_runtime();
         }
 
-        println!("\te");
-        debug!("Exited pipeline {}.", id);
+        debug!("{id}: Finished pipeline exit");
     }
 
     /// Handles a request to exit the script thread and shut down layout.
@@ -3263,7 +3266,6 @@ impl ScriptThread {
             self.control_chan.clone(),
             final_url.clone(),
         );
-        let layout_is_busy = Arc::new(AtomicBool::new(false));
         let layout_config = LayoutConfig {
             id: incomplete.pipeline_id,
             top_level_browsing_context_id: incomplete.top_level_browsing_context_id,
@@ -3277,7 +3279,6 @@ impl ScriptThread {
             mem_profiler_chan: self.mem_profiler_chan.clone(),
             webrender_api_sender: self.webrender_api_sender.clone(),
             paint_time_metrics,
-            busy: layout_is_busy.clone(),
             window_size: incomplete.window_size.clone(),
         };
         self.layouts.borrow_mut().insert(
@@ -3311,7 +3312,6 @@ impl ScriptThread {
             self.microtask_queue.clone(),
             self.webrender_document,
             self.webrender_api_sender.clone(),
-            layout_is_busy,
             self.relayout_event,
             self.prepare_for_screenshot,
             self.unminify_js,
