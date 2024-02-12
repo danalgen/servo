@@ -51,7 +51,7 @@ use layout::traversal::{
 };
 use layout::wrapper::LayoutNodeLayoutData;
 use layout::{layout_debug, layout_debug_scope, parallel, sequential, LayoutData};
-use layout_traits::LayoutThreadFactory;
+use script_layout_interface::LayoutThreadFactory;
 use lazy_static::lazy_static;
 use log::{debug, error, trace, warn};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
@@ -218,34 +218,15 @@ pub struct LayoutThread {
 
 impl LayoutThreadFactory for LayoutThread {
     type Message = Msg;
-
     /// Spawns a new layout thread.
-    fn create(
-        id: PipelineId,
-        top_level_browsing_context_id: TopLevelBrowsingContextId,
-        url: ServoUrl,
-        is_iframe: bool,
-        chan: (Sender<Msg>, Receiver<Msg>),
-        pipeline_port: IpcReceiver<LayoutControlMsg>,
-        background_hang_monitor_register: Box<dyn BackgroundHangMonitorRegister>,
-        constellation_chan: IpcSender<ConstellationMsg>,
-        script_chan: IpcSender<ConstellationControlMsg>,
-        image_cache: Arc<dyn ImageCache>,
-        font_cache_thread: FontCacheThread,
-        time_profiler_chan: profile_time::ProfilerChan,
-        mem_profiler_chan: profile_mem::ProfilerChan,
-        webrender_api_sender: WebrenderIpcSender,
-        paint_time_metrics: PaintTimeMetrics,
-        busy: Arc<AtomicBool>,
-        window_size: WindowSizeData,
-    ) {
+    fn create(config: LayoutThreadConfig) {
         thread::Builder::new()
-            .name(format!("Layout{}", id))
+            .name(format!("Layout{}", config.id))
             .spawn(move || {
                 thread_state::initialize(ThreadState::LAYOUT);
 
                 // In order to get accurate crash reports, we install the top-level bc id.
-                TopLevelBrowsingContextId::install(top_level_browsing_context_id);
+                TopLevelBrowsingContextId::install(config.top_level_browsing_context_id);
 
                 {
                     // Ensures layout thread is destroyed before we send shutdown message
@@ -768,26 +749,27 @@ impl LayoutThread {
         reports_chan.send(reports);
     }
 
-    fn create_layout_thread(&self, info: LayoutThreadInit) {
-        LayoutThread::create(
-            info.id,
-            self.top_level_browsing_context_id,
-            info.url.clone(),
-            info.is_parent,
-            info.layout_pair,
-            info.pipeline_port,
-            info.background_hang_monitor_register,
-            info.constellation_chan,
-            info.script_chan,
-            info.image_cache,
-            self.font_cache_thread.clone(),
-            self.time_profiler_chan.clone(),
-            self.mem_profiler_chan.clone(),
-            self.webrender_api.clone(),
-            info.paint_time_metrics,
-            info.layout_is_busy,
-            info.window_size,
-        );
+    fn create_layout_thread(&self, child_config: LayoutThreadChildConfig) {
+        let config = LayoutThreadConfig {
+            id: info.id,
+            top_level_browsing_context_id: self.top_level_browsing_context_id,
+            url: info.url.clone(),
+            is_iframe: info.is_parent,
+            chan: info.layout_pair,
+            pipeline_port: info.pipeline_port,
+            background_hang_monitor: info.background_hang_monitor_register,
+            constellation_chan: info.constellation_chan,
+            script_chan: info.script_chan,
+            image_cache: info.image_cache,
+            font_cache_thread: self.font_cache_thread.clone(),
+            time_profiler_chan: self.time_profiler_chan.clone(),
+            mem_profiler_chan: self.mem_profiler_chan.clone(),
+            webrender_api_sender: self.webrender_api.clone(),
+            paint_time_metrics: info.paint_time_metrics,
+            busy: info.layout_is_busy,
+            window_size: info.window_size,
+        };
+        LayoutThread::create(connfig);
     }
 
     /// Enters a quiescent state in which no new messages will be processed until an `ExitNow` is

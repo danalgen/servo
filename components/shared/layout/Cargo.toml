@@ -19,4 +19,5 @@ msg = { workspace = true }
 net_traits = { workspace = true }
 profile_traits = { workspace = true }
 script_traits = { workspace = true }
+script_layout_interface = { workspace = true }
 servo_url = { path = "../../url" }

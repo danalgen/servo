@@ -9,11 +9,11 @@
 // The traits are here instead of in layout so
 //   that these modules won't have to depend on layout.
 
-use std::sync::atomic::AtomicBool;
+use std::{borrow::Cow, sync::atomic::AtomicBool};
 use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender};
-use gfx::font_cache_thread::FontCacheThread;
+use gfx::font_cache_thread::{self, FontCacheThread};
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use metrics::PaintTimeMetrics;
 use msg::constellation_msg::{
@@ -22,32 +22,66 @@ use msg::constellation_msg::{
 use net_traits::image_cache::ImageCache;
 use profile_traits::{mem, time};
 use script_traits::{
-    ConstellationControlMsg, LayoutControlMsg, LayoutMsg as ConstellationMsg, WebrenderIpcSender,
-    WindowSizeData,
+    ConstellationControlMsg, InitialScriptState, LayoutControlMsg, LayoutMsg as ConstellationMsg, LoadData, WebrenderIpcSender, WindowSizeData
 };
 use servo_url::ServoUrl;
 
-// A static method creating a layout thread
-// Here to remove the compositor -> layout dependency
+
+pub struct LayoutThreadConfig {
+    pub id: PipelineId,
+    pub top_level_browsing_context_id: TopLevelBrowsingContextId,
+    pub url: ServoUrl,
+    pub is_iframe: bool,
+    pub background_hang_monitor: Box<dyn BackgroundHangMonitorRegister>,
+    pub constellation_chan: IpcSender<ConstellationMsg>,
+    pub script_chan: IpcSender<ConstellationControlMsg>,
+    pub image_cache: Arc<dyn ImageCache>,
+    pub font_cache_thread: FontCacheThread,
+    pub time_profiler_chan: time::ProfilerChan,
+    pub mem_profiler_chan: mem::ProfilerChan,
+    pub webrender_api_sender: WebrenderIpcSender,
+    pub paint_time_metrics: PaintTimeMetrics,
+    pub busy: Arc<AtomicBool>,
+    pub window_size: WindowSizeData,
+}
+
+/// The initial data required to create a new layout attached to an existing script thread.
+pub struct LayoutThreadChildConfig {
+    pub id: PipelineId,
+    pub url: ServoUrl,
+    pub is_parent: bool,
+    pub background_hang_monitor_register: Box<dyn BackgroundHangMonitorRegister>,
+    pub constellation_chan: IpcSender<ConstellationMsg>,
+    pub script_chan: IpcSender<ConstellationControlMsg>,
+    pub image_cache: Arc<dyn ImageCache>,
+    pub paint_time_metrics: PaintTimeMetrics,
+    pub layout_is_busy: Arc<AtomicBool>,
+    pub window_size: WindowSizeData,
+}
 pub trait LayoutThreadFactory {
     type Message;
+    fn create(config: LayoutThreadConfig) -> Box<dyn Layout>;
+}
+
+/// This trait allows creating a `ScriptThread` without depending on the `script`
+/// crate.
+pub trait ScriptThreadFactory<LTF> {
+    /// Type of message sent from script to layout.
+    type Message;
+    /// Create a `ScriptThread`.
     fn create(
-        id: PipelineId,
-        top_level_browsing_context_id: TopLevelBrowsingContextId,
-        url: ServoUrl,
-        is_iframe: bool,
-        chan: (Sender<Self::Message>, Receiver<Self::Message>),
-        pipeline_port: IpcReceiver<LayoutControlMsg>,
-        background_hang_monitor: Box<dyn BackgroundHangMonitorRegister>,
-        constellation_chan: IpcSender<ConstellationMsg>,
-        script_chan: IpcSender<ConstellationControlMsg>,
-        image_cache: Arc<dyn ImageCache>,
+        state: InitialScriptState,
         font_cache_thread: FontCacheThread,
-        time_profiler_chan: time::ProfilerChan,
-        mem_profiler_chan: mem::ProfilerChan,
-        webrender_api_sender: WebrenderIpcSender,
-        paint_time_metrics: PaintTimeMetrics,
-        busy: Arc<AtomicBool>,
-        window_size: WindowSizeData,
-    );
+        constellation_to_layout_receiver: IpcReceiver<LayoutControlMsg>,
+        load_data: LoadData,
+        user_agent: Cow<'static, str>,
+    ) -> (Sender<Self::Message>, Receiver<Self::Message>);
+}
+
+pub trait Layout {
+    fn process(&mut self, msg: script_layout_interface::message::Msg);
+    fn handle_constellation_msg(&mut self, msg: script_traits::LayoutControlMsg);
+    fn handle_font_cache_msg(&mut self);
+    fn create_new_layout(&self, init: LayoutThreadChildConfig) -> Box<dyn Layout>;
+    fn rpc(&self) -> Box<dyn script_layout_interface::rpc::LayoutRPC>;
 }

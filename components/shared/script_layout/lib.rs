@@ -17,14 +17,27 @@ use std::sync::atomic::AtomicIsize;
 
 use atomic_refcell::AtomicRefCell;
 use canvas_traits::canvas::{CanvasId, CanvasMsg};
-use ipc_channel::ipc::IpcSender;
+use crossbeam_channel::{Receiver, Sender};
+use gfx::font_cache_thread::FontCacheThread;
+use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use libc::c_void;
 use malloc_size_of_derive::MallocSizeOf;
+use metrics::PaintTimeMetrics;
+use msg::constellation_msg::BackgroundHangMonitorRegister;
+use msg::constellation_msg::{PipelineId, TopLevelBrowsingContextId};
+use net_traits::image_cache::ImageCache;
 use net_traits::image_cache::PendingImageId;
+use profile_traits::{mem, time};
 use script_traits::UntrustedNodeAddress;
 use servo_url::{ImmutableOrigin, ServoUrl};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use style::data::ElementData;
 use webrender_api::ImageKey;
+use script_traits::{
+    ConstellationControlMsg, LayoutControlMsg, LayoutMsg as ConstellationMsg, WebrenderIpcSender,
+    WindowSizeData,
+};
 
 #[derive(MallocSizeOf)]
 pub struct StyleData {

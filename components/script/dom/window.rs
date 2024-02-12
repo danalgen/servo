@@ -35,6 +35,7 @@ use js::rust::wrappers::JS_DefineProperty;
 use js::rust::{
     CustomAutoRooter, CustomAutoRooterGuard, HandleObject, HandleValue, MutableHandleObject,
 };
+use layout_traits::Layout;
 use malloc_size_of::MallocSizeOf;
 use media::WindowGLContext;
 use msg::constellation_msg::{BrowsingContextId, PipelineId};
@@ -236,19 +237,6 @@ pub struct Window {
     /// The JavaScript runtime.
     #[ignore_malloc_size_of = "Rc<T> is hard"]
     js_runtime: DomRefCell<Option<Rc<Runtime>>>,
-
-    /// A handle for communicating messages to the layout thread.
-    ///
-    /// This channel shouldn't be accessed directly, but through `Window::layout_chan()`,
-    /// which returns `None` if there's no layout thread anymore.
-    #[ignore_malloc_size_of = "channels are hard"]
-    #[no_trace]
-    layout_chan: Sender<Msg>,
-
-    /// A handle to perform RPC calls into the layout, quickly.
-    #[ignore_malloc_size_of = "trait objects are hard"]
-    #[no_trace]
-    layout_rpc: Box<dyn LayoutRPC + Send + 'static>,
 
     /// The current size of the window, in pixels.
     #[no_trace]
@@ -1905,14 +1893,11 @@ impl Window {
             animations: document.animations().sets.clone(),
         };
 
-        match self.layout_chan() {
-            Some(layout_chan) => layout_chan
-                .send(Msg::Reflow(reflow))
-                .expect("Layout thread disconnected"),
-            None => return false,
-        };
-
-        debug!("script: layout forked");
+        self.with_layout(Box::new(
+            move |layout: &mut dyn Layout| {
+                layout.process(Msg::Reflow(reflow))
+            }
+        ));
 
         let complete = match join_port.try_recv() {
             Err(TryRecvError::Empty) => {
@@ -1925,7 +1910,7 @@ impl Window {
             },
         };
 
-        debug!("script: layout joined");
+        debug!("script: layout complete");
 
         // Pending reflows require display, so only reset the pending reflow count if this reflow
         // was to be displayed.
@@ -2069,18 +2054,18 @@ impl Window {
         )) {
             return None;
         }
-        self.layout_rpc.resolved_font_style()
+        self.layout_rpc().resolved_font_style()
     }
 
-    pub fn layout(&self) -> &dyn LayoutRPC {
-        &*self.layout_rpc
+    pub fn layout_rpc(&self) -> Box<dyn LayoutRPC> {
+        self.with_layout(Box::new(|layout: &mut dyn Layout| layout.rpc())).unwrap()
     }
 
     pub fn content_box_query(&self, node: &Node) -> Option<UntypedRect<Au>> {
         if !self.layout_reflow(QueryMsg::ContentBoxQuery(node.to_opaque())) {
             return None;
         }
-        let ContentBoxResponse(rect) = self.layout_rpc.content_box();
+        let ContentBoxResponse(rect) = self.layout_rpc().content_box();
         rect
     }
 
@@ -2088,7 +2073,7 @@ impl Window {
         if !self.layout_reflow(QueryMsg::ContentBoxesQuery(node.to_opaque())) {
             return vec![];
         }
-        let ContentBoxesResponse(rects) = self.layout_rpc.content_boxes();
+        let ContentBoxesResponse(rects) = self.layout_rpc().content_boxes();
         rects
     }
 
@@ -2096,7 +2081,7 @@ impl Window {
         if !self.layout_reflow(QueryMsg::ClientRectQuery(node.to_opaque())) {
             return Rect::zero();
         }
-        self.layout_rpc.node_geometry().client_rect
+        self.layout_rpc().node_geometry().client_rect
     }
 
     /// Find the scroll area of the given node, if it is not None. If the node
@@ -2106,7 +2091,7 @@ impl Window {
         if !self.layout_reflow(QueryMsg::ScrollingAreaQuery(opaque)) {
             return Rect::zero();
         }
-        self.layout_rpc.scrolling_area().client_rect
+        self.layout_rpc().scrolling_area().client_rect
     }
 
     pub fn scroll_offset_query(&self, node: &Node) -> Vector2D<f32, LayoutPixel> {
@@ -2129,7 +2114,7 @@ impl Window {
             .borrow_mut()
             .insert(node.to_opaque(), Vector2D::new(x_ as f32, y_ as f32));
 
-        let NodeScrollIdResponse(scroll_id) = self.layout_rpc.node_scroll_id();
+        let NodeScrollIdResponse(scroll_id) = self.layout_rpc().node_scroll_id();
 
         // Step 12
         self.perform_a_scroll(
@@ -2150,7 +2135,7 @@ impl Window {
         if !self.layout_reflow(QueryMsg::ResolvedStyleQuery(element, pseudo, property)) {
             return DOMString::new();
         }
-        let ResolvedStyleResponse(resolved) = self.layout_rpc.resolved_style();
+        let ResolvedStyleResponse(resolved) = self.layout_rpc().resolved_style();
         DOMString::from(resolved)
     }
 
@@ -2161,7 +2146,7 @@ impl Window {
         if !self.layout_reflow(QueryMsg::InnerWindowDimensionsQuery(browsing_context)) {
             return None;
         }
-        self.layout_rpc.inner_window_dimensions()
+        self.layout_rpc().inner_window_dimensions()
     }
 
     #[allow(unsafe_code)]
@@ -2172,7 +2157,7 @@ impl Window {
 
         // FIXME(nox): Layout can reply with a garbage value which doesn't
         // actually correspond to an element, that's unsound.
-        let response = self.layout_rpc.offset_parent();
+        let response = self.layout_rpc().offset_parent();
         let element = response.node_address.and_then(|parent_node_address| {
             let node = unsafe { from_untrusted_node_address(parent_node_address) };
             DomRoot::downcast(node)
@@ -2188,7 +2173,7 @@ impl Window {
         if !self.layout_reflow(QueryMsg::TextIndexQuery(node.to_opaque(), point_in_node)) {
             return TextIndexResponse(None);
         }
-        self.layout_rpc.text_index()
+        self.layout_rpc().text_index()
     }
 
     #[allow(unsafe_code)]
@@ -2313,12 +2298,8 @@ impl Window {
         self.Document().url()
     }
 
-    pub fn layout_chan(&self) -> Option<&Sender<Msg>> {
-        if self.is_alive() {
-            Some(&self.layout_chan)
-        } else {
-            None
-        }
+    pub fn with_layout<'a, T>(&self, call: Box<dyn FnOnce(&mut dyn Layout) -> T + 'a>) -> Result<T, ()> {
+        ScriptThread::with_layout(self.pipeline_id(), call)
     }
 
     pub fn windowproxy_handler(&self) -> WindowProxyHandler {
@@ -2539,7 +2520,6 @@ impl Window {
         constellation_chan: ScriptToConstellationChan,
         control_chan: IpcSender<ConstellationControlMsg>,
         scheduler_chan: IpcSender<TimerSchedulerMsg>,
-        layout_chan: Sender<Msg>,
         pipelineid: PipelineId,
         parent_info: Option<PipelineId>,
         window_size: WindowSizeData,
@@ -2565,11 +2545,6 @@ impl Window {
         gpu_id_hub: Arc<ParkMutex<Identities>>,
         inherited_secure_context: Option<bool>,
     ) -> DomRoot<Self> {
-        let layout_rpc: Box<dyn LayoutRPC + Send> = {
-            let (rpc_send, rpc_recv) = unbounded();
-            layout_chan.send(Msg::GetRPC(rpc_send)).unwrap();
-            rpc_recv.recv().unwrap()
-        };
         let error_reporter = CSSErrorReporter {
             pipelineid,
             script_chan: Arc::new(Mutex::new(control_chan)),
@@ -2615,8 +2590,6 @@ impl Window {
             bluetooth_extra_permission_data: BluetoothExtraPermissionData::new(),
             page_clip_rect: Cell::new(MaxRect::max_rect()),
             resize_event: Default::default(),
-            layout_chan,
-            layout_rpc,
             window_size: Cell::new(window_size),
             current_viewport: Cell::new(Rect::zero()),
             suppress_reflow: Cell::new(true),

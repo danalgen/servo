@@ -5,7 +5,6 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use background_hang_monitor::HangMonitorRegister;
@@ -19,10 +18,9 @@ use gfx::font_cache_thread::FontCacheThread;
 use ipc_channel::ipc::{self, IpcReceiver, IpcSender};
 use ipc_channel::router::ROUTER;
 use ipc_channel::Error;
-use layout_traits::LayoutThreadFactory;
+use layout_traits::{LayoutThreadFactory, ScriptThreadFactory};
 use log::{debug, error, warn};
 use media::WindowGLContext;
-use metrics::PaintTimeMetrics;
 use msg::constellation_msg::{
     BackgroundHangMonitorControlMsg, BackgroundHangMonitorRegister, BrowsingContextId,
     HangMonitorAlert, HistoryStateId, PipelineId, PipelineNamespace, PipelineNamespaceId,
@@ -35,7 +33,7 @@ use profile_traits::{mem as profile_mem, time};
 use script_traits::{
     AnimationState, ConstellationControlMsg, DiscardBrowsingContext, DocumentActivity,
     InitialScriptState, LayoutControlMsg, LayoutMsg, LoadData, NewLayoutInfo, SWManagerMsg,
-    ScriptThreadFactory, ScriptToConstellationChan, TimerSchedulerMsg, WindowSizeData,
+    ScriptToConstellationChan, TimerSchedulerMsg, WindowSizeData,
 };
 use serde::{Deserialize, Serialize};
 use servo_config::opts::{self, Opts};
@@ -217,7 +215,7 @@ impl Pipeline {
     pub fn spawn<Message, LTF, STF>(state: InitialPipelineState) -> Result<NewPipeline, Error>
     where
         LTF: LayoutThreadFactory<Message = Message>,
-        STF: ScriptThreadFactory<Message = Message>,
+        STF: ScriptThreadFactory<LTF, Message = Message>,
     {
         // Note: we allow channel creation to panic, since recovering from this
         // probably requires a general low-memory strategy.
@@ -522,23 +520,15 @@ impl UnprivilegedPipelineContent {
         background_hang_monitor_register: Box<dyn BackgroundHangMonitorRegister>,
     ) where
         LTF: LayoutThreadFactory<Message = Message>,
-        STF: ScriptThreadFactory<Message = Message>,
+        STF: ScriptThreadFactory<LTF, Message = Message>,
     {
         // Setup pipeline-namespace-installing for all threads in this process.
         // Idempotent in single-process mode.
         PipelineNamespace::set_installer_sender(self.namespace_request_sender);
 
         let image_cache = Arc::new(ImageCacheImpl::new(self.webrender_image_api_sender.clone()));
-        let paint_time_metrics = PaintTimeMetrics::new(
-            self.id,
-            self.time_profiler_chan.clone(),
-            self.layout_to_constellation_chan.clone(),
-            self.script_chan.clone(),
-            self.load_data.url.clone(),
-        );
         let (content_process_shutdown_chan, content_process_shutdown_port) = unbounded();
-        let layout_thread_busy_flag = Arc::new(AtomicBool::new(false));
-        let layout_pair = STF::create(
+        STF::create(
             InitialScriptState {
                 id: self.id,
                 browsing_context_id: self.browsing_context_id,
@@ -564,32 +554,13 @@ impl UnprivilegedPipelineContent {
                 webxr_registry: self.webxr_registry,
                 webrender_document: self.webrender_document,
                 webrender_api_sender: self.webrender_api_sender.clone(),
-                layout_is_busy: layout_thread_busy_flag.clone(),
                 player_context: self.player_context.clone(),
                 inherited_secure_context: self.load_data.inherited_secure_context.clone(),
             },
+            self.font_cache_thread.clone(),
+            self.pipeline_port,
             self.load_data.clone(),
             self.user_agent,
-        );
-
-        LTF::create(
-            self.id,
-            self.top_level_browsing_context_id,
-            self.load_data.url,
-            self.parent_pipeline_id.is_some(),
-            layout_pair,
-            self.pipeline_port,
-            background_hang_monitor_register,
-            self.layout_to_constellation_chan,
-            self.script_chan,
-            image_cache,
-            self.font_cache_thread,
-            self.time_profiler_chan,
-            self.mem_profiler_chan,
-            self.webrender_api_sender,
-            paint_time_metrics,
-            layout_thread_busy_flag.clone(),
-            self.window_size,
         );
 
         if wait_for_completion {

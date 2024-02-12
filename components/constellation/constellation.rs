@@ -124,7 +124,7 @@ use ipc_channel::router::ROUTER;
 use ipc_channel::Error as IpcError;
 use keyboard_types::webdriver::Event as WebDriverInputEvent;
 use keyboard_types::KeyboardEvent;
-use layout_traits::LayoutThreadFactory;
+use layout_traits::{LayoutThreadFactory, ScriptThreadFactory};
 use log::{debug, error, info, trace, warn};
 use media::{GLPlayerThreads, WindowGLContext};
 use msg::constellation_msg::{
@@ -146,7 +146,7 @@ use script_traits::{
     IFrameLoadInfoWithData, IFrameSandboxState, IFrameSizeMsg, Job, LayoutControlMsg,
     LayoutMsg as FromLayoutMsg, LoadData, LoadOrigin, LogEntry, MediaSessionActionType,
     MessagePortMsg, MouseEventType, PortMessageTask, SWManagerMsg, SWManagerSenders,
-    ScriptMsg as FromScriptMsg, ScriptThreadFactory, ScriptToConstellationChan,
+    ScriptMsg as FromScriptMsg, ScriptToConstellationChan,
     ServiceWorkerManagerFactory, ServiceWorkerMsg, StructuredSerializedData, TimerSchedulerMsg,
     UpdatePipelineIdReason, WebDriverCommandMsg, WindowSizeData, WindowSizeType,
 };
@@ -613,7 +613,7 @@ where
 impl<Message, LTF, STF, SWF> Constellation<Message, LTF, STF, SWF>
 where
     LTF: LayoutThreadFactory<Message = Message>,
-    STF: ScriptThreadFactory<Message = Message>,
+    STF: ScriptThreadFactory<LTF, Message = Message>,
     SWF: ServiceWorkerManagerFactory,
 {
     /// Create a new constellation thread.

@@ -691,23 +691,8 @@ pub struct InitialScriptState {
     pub webrender_document: DocumentId,
     /// FIXME(victor): The Webrender API sender in this constellation's pipeline
     pub webrender_api_sender: WebrenderIpcSender,
-    /// Flag to indicate if the layout thread is busy handling a request.
-    pub layout_is_busy: Arc<AtomicBool>,
     /// Application window's GL Context for Media player
     pub player_context: WindowGLContext,
-}
-
-/// This trait allows creating a `ScriptThread` without depending on the `script`
-/// crate.
-pub trait ScriptThreadFactory {
-    /// Type of message sent from script to layout.
-    type Message;
-    /// Create a `ScriptThread`.
-    fn create(
-        state: InitialScriptState,
-        load_data: LoadData,
-        user_agent: Cow<'static, str>,
-    ) -> (Sender<Self::Message>, Receiver<Self::Message>);
 }
 
 /// This trait allows creating a `ServiceWorkerManager` without depending on the `script`

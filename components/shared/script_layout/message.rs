@@ -75,7 +75,7 @@ pub enum Msg {
     /// Creates a new layout thread.
     ///
     /// This basically exists to keep the script-layout dependency one-way.
-    CreateLayoutThread(LayoutThreadInit),
+    //CreateLayoutThread(LayoutThreadChildConfig),
 
     /// Set the final Url.
     SetFinalUrl(ServoUrl),
@@ -216,21 +216,6 @@ pub struct ScriptReflow {
     pub animation_timeline_value: f64,
     /// The set of animations for this document.
     pub animations: DocumentAnimationSet,
-}
-
-pub struct LayoutThreadInit {
-    pub id: PipelineId,
-    pub url: ServoUrl,
-    pub is_parent: bool,
-    pub layout_pair: (Sender<Msg>, Receiver<Msg>),
-    pub pipeline_port: IpcReceiver<LayoutControlMsg>,
-    pub background_hang_monitor_register: Box<dyn BackgroundHangMonitorRegister>,
-    pub constellation_chan: IpcSender<ConstellationMsg>,
-    pub script_chan: IpcSender<ConstellationControlMsg>,
-    pub image_cache: Arc<dyn ImageCache>,
-    pub paint_time_metrics: PaintTimeMetrics,
-    pub layout_is_busy: Arc<AtomicBool>,
-    pub window_size: WindowSizeData,
 }
 
 /// A pending restyle.

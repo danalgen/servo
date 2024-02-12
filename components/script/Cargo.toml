@@ -53,6 +53,7 @@ euclid = { workspace = true }
 fnv = { workspace = true }
 fxhash = { workspace = true }
 gfx_traits = { workspace = true }
+gfx = { path = "../gfx" }
 headers = { workspace = true }
 html5ever = { workspace = true }
 http = { workspace = true }
@@ -64,6 +65,7 @@ itertools = { workspace = true }
 js = { package = "mozjs", git = "https://github.com/servo/mozjs", features = ["streams"] }
 jstraceable_derive = { path = "../jstraceable_derive" }
 keyboard-types = { workspace = true }
+layout_traits = { workspace = true }
 lazy_static = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
